@@ -83,11 +83,8 @@ async function downloadAndExtract(
   const integrity = { integrity: manifest.dist?.integrity, shasum: manifest.dist?.shasum };
   warnings.push(...verifyBytes(spec.version, bytes, integrity));
 
-  const rawExtractDir = path.join(tempRoot, `${label}-raw`);
   const extractDir = path.join(tempRoot, label);
-  await mkdir(rawExtractDir, { recursive: true });
   await mkdir(extractDir, { recursive: true });
-  await tar.x({ file: tarballPath, cwd: rawExtractDir });
   await tar.x({
     file: tarballPath,
     cwd: extractDir,

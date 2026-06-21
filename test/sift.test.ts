@@ -114,6 +114,34 @@ describe("reports", () => {
     expect(signalIds(report)).toContain("install-path-network");
   });
 
+  it("install-path ignores refs that escape the package root", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "sift-escape-test-"));
+    const oldDir = path.join(root, "old");
+    const newDir = path.join(root, "new");
+    const oldManifest = { name: "pkg", version: "1.0.0" };
+    const newManifest = { name: "pkg", version: "1.0.1", scripts: { postinstall: "node ../outside.js" } };
+    await materialize(oldDir, { "package.json": `${JSON.stringify(oldManifest)}\n` });
+    await materialize(newDir, { "package.json": `${JSON.stringify(newManifest)}\n` });
+    await writeFile(path.join(root, "outside.js"), "const dns = require('dns');\n");
+    try {
+      const report = await analyze(
+        {
+          packageName: "pkg",
+          oldVersion: "1.0.0",
+          newVersion: "1.0.1",
+          oldDir,
+          newDir,
+          oldRegistryManifest: oldManifest,
+          newRegistryManifest: newManifest
+        },
+        { includeDiffs: false }
+      );
+      expect(signalIds(report)).not.toContain("install-path-network");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("new bin entry fires", async () => {
     const report = await run({
       oldManifest: { name: "pkg", bin: {} },

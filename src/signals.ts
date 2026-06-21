@@ -224,7 +224,7 @@ function directFileRefs(command: string): string[] {
   const patterns = [
     /\bnode\s+([^\s;&|]+)/g,
     /\brequire\(["']([^"']+)["']\)/g,
-    /\b(?:\.\/|\.\.\/)([^\s;&|]+)/g
+    /\b((?:\.\/|\.\.\/)[^\s;&|]+)/g
   ];
   for (const pattern of patterns) {
     for (const match of command.matchAll(pattern)) {
@@ -255,8 +255,9 @@ function directImportRefs(text: string, fromFile: string): string[] {
 }
 
 function normalizeLocalRefs(ref: string): string[] {
-  const cleaned = ref.replace(/^['"]|['"]$/g, "").replace(/^\.\//, "").replace(/\\/g, "/");
+  const cleaned = path.posix.normalize(ref.replace(/^['"]|['"]$/g, "").replace(/\\/g, "/")).replace(/^\.\//, "");
   if (!cleaned || cleaned.startsWith("-") || cleaned.includes("://")) return [];
+  if (cleaned === ".." || cleaned.startsWith("../") || cleaned.startsWith("/")) return [];
   if (path.posix.extname(cleaned)) return [cleaned];
   const candidates = [cleaned, `${cleaned}.js`, `${cleaned}.cjs`, `${cleaned}.mjs`];
   return candidates;
