@@ -1,0 +1,33 @@
+{
+  "name": "@ssbrouhard/sift",
+  "version": "0.1.0",
+  "description": "Deterministic npm tarball diff CLI with supply-chain tripwires.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "sift": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "diff": "^8.0.2",
+    "tar": "^7.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.2",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.15"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
