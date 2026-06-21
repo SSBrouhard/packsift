@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import * as tar from "tar";
 import { describe, expect, it } from "vitest";
 import { analyze, formatHuman, parsePackageSpec, verifyBytes } from "../src/index.js";
+import { fetchArtifacts } from "../src/registry.js";
 import { PackageManifest, Report } from "../src/types.js";
 
 describe("package specs", () => {
@@ -101,6 +103,17 @@ describe("reports", () => {
     expect(signalIds(report)).toContain("install-path-network");
   });
 
+  it("install-path scans extensionless local imports from script directories", async () => {
+    const report = await run({
+      newManifest: { scripts: { postinstall: "node scripts/install.js" } },
+      newFiles: {
+        "scripts/install.js": "require('./net');\n",
+        "scripts/net.js": "const dns = require('dns');\n"
+      }
+    });
+    expect(signalIds(report)).toContain("install-path-network");
+  });
+
   it("new bin entry fires", async () => {
     const report = await run({
       oldManifest: { name: "pkg", bin: {} },
@@ -140,6 +153,49 @@ describe("reports", () => {
     const bytes = Buffer.from("real tarball");
     const warnings = verifyBytes("1.0.0", bytes, { integrity: "sha512-bad", shasum: "bad" });
     expect(warnings.map((warning) => warning.kind)).toEqual(["integrity", "shasum"]);
+  });
+
+  it("cleans artifact temp root when a later fetch fails", async () => {
+    const sandbox = await mkdtemp(path.join(os.tmpdir(), "sift-fetch-test-"));
+    const originalTmpdir = process.env.TMPDIR;
+    const originalFetch = globalThis.fetch;
+    const oldTarball = await packageTarball(sandbox, "old.tgz");
+    process.env.TMPDIR = `${sandbox}${path.sep}`;
+    const mockFetch: typeof fetch = async (input) => {
+      const url = input.toString();
+      if (url === "https://registry.test/pkg") {
+        return new Response(
+          JSON.stringify({
+            versions: {
+              "1.0.0": { name: "pkg", version: "1.0.0", dist: { tarball: "https://registry.test/old.tgz" } },
+              "1.0.1": { name: "pkg", version: "1.0.1", dist: { tarball: "https://registry.test/new.tgz" } }
+            }
+          })
+        );
+      }
+      if (url === "https://registry.test/old.tgz") return new Response(new Uint8Array(oldTarball));
+      if (url === "https://registry.test/new.tgz") throw new Error("new fetch failed");
+      return new Response(null, { status: 404 });
+    };
+    globalThis.fetch = mockFetch;
+    try {
+      await expect(
+        fetchArtifacts(
+          { raw: "pkg@1.0.0", name: "pkg", version: "1.0.0" },
+          { raw: "pkg@1.0.1", name: "pkg", version: "1.0.1" },
+          { registry: "https://registry.test", keep: false }
+        )
+      ).rejects.toThrow("new fetch failed");
+      expect((await readdir(sandbox)).filter((entry) => entry.startsWith("sift-"))).toEqual([]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalTmpdir === undefined) {
+        delete process.env.TMPDIR;
+      } else {
+        process.env.TMPDIR = originalTmpdir;
+      }
+      await rm(sandbox, { recursive: true, force: true });
+    }
   });
 
   it("--json emits structured equivalent data", async () => {
@@ -211,6 +267,15 @@ async function materialize(root: string, files: Record<string, string | Buffer>)
     await mkdir(path.dirname(path.join(root, filePath)), { recursive: true });
     await writeFile(path.join(root, filePath), contents);
   }
+}
+
+async function packageTarball(root: string, fileName: string): Promise<Buffer> {
+  const packageRoot = path.join(root, `${fileName}-contents`, "package");
+  await mkdir(packageRoot, { recursive: true });
+  await writeFile(path.join(packageRoot, "package.json"), '{"name":"pkg"}\n');
+  const tarballPath = path.join(root, fileName);
+  await tar.c({ file: tarballPath, gzip: true, cwd: path.dirname(packageRoot) }, ["package"]);
+  return readFile(tarballPath);
 }
 
 function signalIds(report: Report): string[] {

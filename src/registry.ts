@@ -32,8 +32,15 @@ export async function fetchArtifacts(oldSpec: PackageSpec, newSpec: PackageSpec,
 
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "sift-"));
   const integrityWarnings: IntegrityWarning[] = [];
-  const oldArtifacts = await downloadAndExtract(oldSpec, oldManifest, tempRoot, "old", integrityWarnings);
-  const newArtifacts = await downloadAndExtract(newSpec, newManifest, tempRoot, "new", integrityWarnings);
+  let oldArtifacts: VersionArtifacts;
+  let newArtifacts: VersionArtifacts;
+  try {
+    oldArtifacts = await downloadAndExtract(oldSpec, oldManifest, tempRoot, "old", integrityWarnings);
+    newArtifacts = await downloadAndExtract(newSpec, newManifest, tempRoot, "new", integrityWarnings);
+  } catch (error) {
+    if (!options.keep) await rm(tempRoot, { recursive: true, force: true });
+    throw error;
+  }
 
   return {
     oldArtifacts,

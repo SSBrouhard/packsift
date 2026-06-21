@@ -228,8 +228,9 @@ function directFileRefs(command: string): string[] {
   ];
   for (const pattern of patterns) {
     for (const match of command.matchAll(pattern)) {
-      const ref = normalizeLocalRef(match[1]);
-      if (ref) refs.add(ref);
+      for (const ref of normalizeLocalRefs(match[1])) {
+        refs.add(ref);
+      }
     }
   }
   return [...refs];
@@ -245,18 +246,20 @@ function directImportRefs(text: string, fromFile: string): string[] {
     for (const match of text.matchAll(pattern)) {
       if (!match[1].startsWith(".")) continue;
       const base = path.posix.dirname(fromFile);
-      const normalized = normalizeLocalRef(path.posix.join(base, match[1]));
-      if (normalized) refs.add(normalized);
+      for (const normalized of normalizeLocalRefs(path.posix.join(base, match[1]))) {
+        refs.add(normalized);
+      }
     }
   }
   return [...refs];
 }
 
-function normalizeLocalRef(ref: string): string | undefined {
-  const cleaned = ref.replace(/^['"]|['"]$/g, "").replace(/^.\//, "");
-  if (!cleaned || cleaned.startsWith("-") || cleaned.includes("://")) return undefined;
+function normalizeLocalRefs(ref: string): string[] {
+  const cleaned = ref.replace(/^['"]|['"]$/g, "").replace(/^\.\//, "").replace(/\\/g, "/");
+  if (!cleaned || cleaned.startsWith("-") || cleaned.includes("://")) return [];
+  if (path.posix.extname(cleaned)) return [cleaned];
   const candidates = [cleaned, `${cleaned}.js`, `${cleaned}.cjs`, `${cleaned}.mjs`];
-  return candidates[0].replace(/\\/g, "/");
+  return candidates;
 }
 
 function normalizeBin(bin: PackageManifest["bin"], packageName?: string): Record<string, string> {
