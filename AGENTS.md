@@ -8,5 +8,6 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 
 - Package name is `@ssbrouhard/sift`; the exposed CLI binary is the bare command `sift`.
 - Product scope is npm published tarballs only: no GitHub cloning/API calls, model calls, advisory ingestion, risk scores, verdicts, or recommendations.
+- Runtime support starts at Node.js 20.
 - Build with `npm run build`; run deterministic fixture tests with `npm test`; run `npm run typecheck` for strict TypeScript checking.
 - The analyzer strips the npm tarball `package/` prefix, hashes raw bytes, drops unchanged files entirely, and only generates full text diffs when `--diff` is requested.
