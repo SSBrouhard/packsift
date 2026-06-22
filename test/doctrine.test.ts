@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { formatHuman } from "../src/index.js";
-import { type FileChange, type JsonValue, type Report, type Signal } from "../src/types.js";
+import { formatBatchHuman, formatHuman } from "../src/index.js";
+import { type BatchReport, type FileChange, type JsonValue, type Report, type Signal } from "../src/types.js";
 
 const hardBanned = [
   "merge",
@@ -219,7 +219,8 @@ describe("evidence-never-verdict doctrine", () => {
     const outputs = [
       doctrineSubject(noSignalsReport, false),
       doctrineSubject(signalCoverageReport, false),
-      doctrineSubject(signalCoverageReport, true)
+      doctrineSubject(signalCoverageReport, true),
+      formatBatchHuman(batchCoverageReport)
     ];
 
     expect(outputs.flatMap(findBannedVocabulary)).toEqual([]);
@@ -405,4 +406,33 @@ const signalCoverageReport: Report = {
     fired: true,
     threshold: "> 2x or > +1 MB"
   }
+};
+
+const batchCoverageReport: BatchReport = {
+  analyzed: [
+    {
+      name: "alpha",
+      report: {
+        ...redactPackageControlledReport(signalCoverageReport),
+        packageName: "alpha",
+        oldVersion: "1.0.0",
+        newVersion: "2.0.0"
+      }
+    },
+    {
+      name: "beta",
+      report: {
+        ...redactPackageControlledReport(noSignalsReport),
+        packageName: "beta",
+        oldVersion: "1.0.0",
+        newVersion: "1.0.1"
+      }
+    }
+  ],
+  skipped: [
+    { name: "added-only", reason: "added" },
+    { name: "multi-copy", reason: "multiple-versions" },
+    { name: "gone-only", reason: "removed" }
+  ],
+  errors: [{ name: "fetch-error", message: "HTTP 500" }]
 };

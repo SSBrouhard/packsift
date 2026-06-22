@@ -139,3 +139,39 @@ export interface AnalyzeOptions {
   includeDiffs?: boolean;
   textDiffSizeLimit?: number;
 }
+
+export type VersionSetMap = Map<string, Set<string>>;
+
+export interface Transition {
+  name: string;
+  oldVersion: string;
+  newVersion: string;
+}
+
+export type SkippedReason = "added" | "removed" | "multiple-versions";
+
+export interface SkippedEntry {
+  name: string;
+  reason: SkippedReason;
+}
+
+export interface ClassifiedTransitions {
+  analyzed: Transition[];
+  skipped: SkippedEntry[];
+}
+
+export interface BatchEntry {
+  name: string;
+  report: Report;
+}
+
+export interface BatchErrorEntry {
+  name: string;
+  message: string;
+}
+
+export interface BatchReport {
+  analyzed: BatchEntry[];
+  skipped: SkippedEntry[];
+  errors: BatchErrorEntry[];
+}
