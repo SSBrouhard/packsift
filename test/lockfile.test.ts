@@ -40,6 +40,7 @@ describe("lockfile parsing", () => {
           "node_modules/file-dep": { version: "1.0.0", resolved: "file:../file-dep" },
           "node_modules/git-dep": { version: "1.0.0", resolved: "git+ssh://git@example.test/git-dep.git#abc" },
           "node_modules/http-dep": { version: "1.0.0", resolved: "https://example.test/http-dep-1.0.0.tgz" },
+          "node_modules/http-shaped": { version: "1.0.0", resolved: "https://example.test/http-shaped/-/http-shaped-1.0.0.tgz" },
           "node_modules/alias-dep": { name: "real-dep", version: "1.0.0", resolved: "https://registry.npmjs.org/real-dep/-/real-dep-1.0.0.tgz" },
           "node_modules/link-dep": { version: "1.0.0", resolved: "https://registry.npmjs.org/link-dep/-/link-dep-1.0.0.tgz", link: true },
           "node_modules/unknown-dep": { version: "1.0.0" }
@@ -49,6 +50,25 @@ describe("lockfile parsing", () => {
     );
 
     expect([...versions.keys()]).toEqual(["alpha"]);
+  });
+
+  it("requires HTTP tarballs to match the configured registry base", () => {
+    const versions = parseLockfileData(
+      {
+        lockfileVersion: 3,
+        packages: {
+          "node_modules/alpha": { version: "1.0.0", resolved: "https://registry.example.test/npm/alpha/-/alpha-1.0.0.tgz" },
+          "node_modules/@scope/pkg": { version: "2.0.0", resolved: "https://registry.example.test/npm/@scope%2fpkg/-/pkg-2.0.0.tgz" },
+          "node_modules/off-host": { version: "1.0.0", resolved: "https://example.test/off-host/-/off-host-1.0.0.tgz" },
+          "node_modules/off-base": { version: "1.0.0", resolved: "https://registry.example.test/other/off-base/-/off-base-1.0.0.tgz" },
+          "node_modules/default-registry": { version: "1.0.0", resolved: "https://registry.npmjs.org/default-registry/-/default-registry-1.0.0.tgz" }
+        }
+      },
+      "fixture-lock",
+      "https://registry.example.test/npm/"
+    );
+
+    expect([...versions.keys()].sort()).toEqual(["@scope/pkg", "alpha"]);
   });
 
   it("rejects legacy or missing package maps clearly", () => {

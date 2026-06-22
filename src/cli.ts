@@ -66,8 +66,8 @@ async function main(): Promise<void> {
 }
 
 async function runBatch(options: BatchCliOptions): Promise<void> {
-  const oldVersions = await parseLockfile(options.oldLockfile);
-  const newVersions = await parseLockfile(options.newLockfile);
+  const oldVersions = await parseLockfile(options.oldLockfile, options.registry);
+  const newVersions = await parseLockfile(options.newLockfile, options.registry);
   const classified = classifyTransitions(oldVersions, newVersions);
   const report = await analyzeBatch(classified, {
     registry: options.registry,

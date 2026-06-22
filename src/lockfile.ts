@@ -13,7 +13,9 @@ interface LockfilePackageEntry {
   link?: unknown;
 }
 
-export async function parseLockfile(filePath: string): Promise<VersionSetMap> {
+const DEFAULT_REGISTRY = "https://registry.npmjs.org";
+
+export async function parseLockfile(filePath: string, registry = DEFAULT_REGISTRY): Promise<VersionSetMap> {
   let raw: string;
   try {
     raw = await readFile(filePath, "utf8");
@@ -28,13 +30,17 @@ export async function parseLockfile(filePath: string): Promise<VersionSetMap> {
     throw new Error(`Could not parse lockfile ${filePath}: ${messageFor(error)}`);
   }
 
-  return parseLockfileData(parsed, filePath);
+  return parseLockfileData(parsed, filePath, registry);
 }
 
-export function parseLockfileData(lockfile: NpmLockfile, label = "lockfile"): VersionSetMap {
+export function parseLockfileData(lockfile: NpmLockfile, label = "lockfile", registry = DEFAULT_REGISTRY): VersionSetMap {
   if ((lockfile.lockfileVersion !== 2 && lockfile.lockfileVersion !== 3) || !isRecord(lockfile.packages)) {
     throw new Error(`${label} is unsupported: expected npm package-lock v2/v3 with a packages map`);
   }
+
+  const registryUrl = parseRegistryUrl(registry);
+  const registryBaseSegments = decodedPathSegments(registryUrl.pathname);
+  if (!registryBaseSegments) throw new Error(`Invalid registry URL: ${registry}`);
 
   const versions: VersionSetMap = new Map();
   for (const [lockPath, entry] of Object.entries(lockfile.packages)) {
@@ -43,7 +49,7 @@ export function parseLockfileData(lockfile: NpmLockfile, label = "lockfile"): Ve
     if (!name || !isRecord(entry)) continue;
     const version = (entry as LockfilePackageEntry).version;
     if (typeof version !== "string") continue;
-    if (!isRegistryPackageEntry(entry as LockfilePackageEntry, name, version)) continue;
+    if (!isRegistryPackageEntry(entry as LockfilePackageEntry, name, version, registryUrl, registryBaseSegments)) continue;
     addVersion(versions, name, version);
   }
 
@@ -63,15 +69,15 @@ function addVersion(versions: VersionSetMap, name: string, version: string): voi
   versions.set(name, set);
 }
 
-function isRegistryPackageEntry(entry: LockfilePackageEntry, pathName: string, version: string): boolean {
+function isRegistryPackageEntry(entry: LockfilePackageEntry, pathName: string, version: string, registryUrl: URL, registryBaseSegments: string[]): boolean {
   if (entry.link === true) return false;
   if (version.startsWith("npm:")) return false;
   if (typeof entry.name === "string" && entry.name !== pathName) return false;
   if (typeof entry.resolved !== "string") return false;
-  return isRegistryTarballUrl(entry.resolved, pathName, version);
+  return isRegistryTarballUrl(entry.resolved, pathName, version, registryUrl, registryBaseSegments);
 }
 
-function isRegistryTarballUrl(resolved: string, packageName: string, version: string): boolean {
+function isRegistryTarballUrl(resolved: string, packageName: string, version: string, registryUrl: URL, registryBaseSegments: string[]): boolean {
   let url: URL;
   try {
     url = new URL(resolved);
@@ -79,22 +85,45 @@ function isRegistryTarballUrl(resolved: string, packageName: string, version: st
     return false;
   }
 
-  if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+  if (url.protocol !== registryUrl.protocol || url.host !== registryUrl.host) return false;
 
-  let segments: string[];
-  try {
-    segments = decodeURIComponent(url.pathname).split("/").filter(Boolean);
-  } catch {
-    return false;
-  }
+  const segments = decodedPathSegments(url.pathname);
+  if (!segments) return false;
+  if (!hasSegmentPrefix(segments, registryBaseSegments)) return false;
 
-  const markerIndex = segments.lastIndexOf("-");
   const packageSegments = packageName.split("/");
-  if (markerIndex < packageSegments.length || markerIndex + 1 >= segments.length) return false;
-  if (segments.slice(markerIndex - packageSegments.length, markerIndex).join("/") !== packageName) return false;
+  const packageStart = registryBaseSegments.length;
+  const markerIndex = packageStart + packageSegments.length;
+  if (segments.length !== markerIndex + 2) return false;
+  if (segments.slice(packageStart, markerIndex).join("/") !== packageName) return false;
+  if (segments[markerIndex] !== "-") return false;
 
   const packageBase = packageSegments[packageSegments.length - 1];
   return segments[markerIndex + 1] === `${packageBase}-${version}.tgz`;
+}
+
+function parseRegistryUrl(registry: string): URL {
+  let url: URL;
+  try {
+    url = new URL(registry);
+  } catch {
+    throw new Error(`Invalid registry URL: ${registry}`);
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error(`Invalid registry URL: ${registry}`);
+  return url;
+}
+
+function decodedPathSegments(pathname: string): string[] | undefined {
+  try {
+    return decodeURIComponent(pathname).split("/").filter(Boolean);
+  } catch {
+    return undefined;
+  }
+}
+
+function hasSegmentPrefix(segments: string[], prefix: string[]): boolean {
+  if (segments.length < prefix.length) return false;
+  return prefix.every((segment, index) => segments[index] === segment);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
