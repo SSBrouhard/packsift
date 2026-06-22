@@ -2,7 +2,18 @@ import { describe, expect, it } from "vitest";
 import { formatHuman } from "../src/index.js";
 import { type FileChange, type JsonValue, type Report, type Signal } from "../src/types.js";
 
-const hardBanned = ["safe", "urgent", "recommended", "therefore", "should"] as const;
+const hardBanned = [
+  "merge",
+  "review",
+  "hold",
+  "urgent",
+  "risk-score",
+  "recommendation",
+  "recommended",
+  "safe",
+  "therefore",
+  "should"
+] as const;
 const inferenceBanned = ["appears", "likely", "related"] as const;
 
 type BannedListName = "hardBanned" | "inferenceBanned";
@@ -188,10 +199,18 @@ function redactString(_value: string): string {
 
 describe("evidence-never-verdict doctrine", () => {
   it("finds banned vocabulary by whole word and list", () => {
-    expect(findBannedVocabulary("this upgrade appears safe, merge recommended")).toEqual([
-      { word: "safe", list: "hardBanned", line: "this upgrade appears safe, merge recommended" },
-      { word: "recommended", list: "hardBanned", line: "this upgrade appears safe, merge recommended" },
-      { word: "appears", list: "inferenceBanned", line: "this upgrade appears safe, merge recommended" }
+    const line = "merge review hold urgent risk-score recommendation-style recommended safe appears";
+
+    expect(findBannedVocabulary(line)).toEqual([
+      { word: "merge", list: "hardBanned", line },
+      { word: "review", list: "hardBanned", line },
+      { word: "hold", list: "hardBanned", line },
+      { word: "urgent", list: "hardBanned", line },
+      { word: "risk-score", list: "hardBanned", line },
+      { word: "recommendation", list: "hardBanned", line },
+      { word: "recommended", list: "hardBanned", line },
+      { word: "safe", list: "hardBanned", line },
+      { word: "appears", list: "inferenceBanned", line }
     ]);
     expect(findBannedVocabulary("safely unrelatedness")).toEqual([]);
   });
