@@ -8,11 +8,14 @@ differences plus deterministic supply-chain-relevant signals.
 
 ## Doctrine: Evidence, Never Verdict
 
-sift puts the facts next to each other. It never tells you what they mean.
+sift puts the facts next to each other. Its own narration never tells you what
+they mean.
 
-`sift` reports bytes, hashes, file changes, metadata correlations, and
-deterministic signal matches, then stops. It does not output merge, review, hold,
-urgent, risk-score, or recommendation-style verdicts.
+The human report lists bytes, hashes, file changes, metadata correlations, and
+deterministic signal matches, then stops. Sift-authored labels avoid merge,
+review, hold, urgent, risk-score, and recommendation-style verdicts. Package
+names, file paths, registry metadata, and `--json` output still preserve source
+data exactly.
 
 ## Requirements
 
