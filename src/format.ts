@@ -55,8 +55,8 @@ export function formatBatchHuman(report: BatchReport): string {
     for (const entry of report.analyzed) {
       const summary = entry.report.files.summary;
       const changedFiles = summary.added + summary.removed + summary.changed;
-      const signals = entry.report.signals.map((signal) => signal.id).join(",") || "no signals";
-      lines.push(`  ${entry.name}  ${entry.report.oldVersion} -> ${entry.report.newVersion}   ${changedFiles} changed files; signals: ${signals}`);
+      const evidence = formatBatchEvidence(entry.report);
+      lines.push(`  ${entry.name}  ${entry.report.oldVersion} -> ${entry.report.newVersion}   ${changedFiles} changed files; ${evidence}`);
     }
   }
 
@@ -81,6 +81,14 @@ export function formatBatchHuman(report: BatchReport): string {
   }
 
   return `${lines.join("\n")}\n`;
+}
+
+function formatBatchEvidence(report: Report): string {
+  const parts: string[] = [];
+  const signals = report.signals.map((signal) => signal.id).join(",");
+  if (signals) parts.push(`signals: ${signals}`);
+  if (report.integrityWarnings.length) parts.push(`integrity/shasum mismatches: ${report.integrityWarnings.length}`);
+  return parts.join("; ") || "signals: no signals";
 }
 
 function formatSignal(signal: Signal): string[] {

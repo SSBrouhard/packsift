@@ -106,7 +106,17 @@ describe("batch formatting and CLI parsing", () => {
     const output = formatBatchHuman({
       analyzed: [
         { name: "alpha", report: { ...reportFor("alpha", "1.0.0", "1.0.1"), signals: [{ id: "new-bin", title: "New bin entries", details: { added: { alpha: "cli.js" } } }] } },
-        { name: "beta", report: reportFor("beta", "2.0.0", "2.0.1") }
+        {
+          name: "beta",
+          report: {
+            ...reportFor("beta", "2.0.0", "2.0.1"),
+            integrityWarnings: [
+              { version: "2.0.1", kind: "integrity", expected: "sha512-expected", actual: "sha512-actual" },
+              { version: "2.0.1", kind: "shasum", expected: "expected", actual: "actual" }
+            ]
+          }
+        },
+        { name: "delta", report: reportFor("delta", "3.0.0", "3.0.1") }
       ],
       skipped: [{ name: "gamma", reason: "multiple-versions" }],
       errors: [{ name: "zeta", message: "HTTP 500" }]
@@ -114,7 +124,8 @@ describe("batch formatting and CLI parsing", () => {
 
     expect(output).toContain("-- Analyzed");
     expect(output).toContain("alpha  1.0.0 -> 1.0.1   1 changed files; signals: new-bin");
-    expect(output).toContain("beta  2.0.0 -> 2.0.1   1 changed files; signals: no signals");
+    expect(output).toContain("beta  2.0.0 -> 2.0.1   1 changed files; integrity/shasum mismatches: 2");
+    expect(output).toContain("delta  3.0.0 -> 3.0.1   1 changed files; signals: no signals");
     expect(output).toContain("gamma  (multiple versions)");
     expect(output).toContain("zeta  HTTP 500");
     expect(output.indexOf("-- Analyzed")).toBeLessThan(output.indexOf("-- Skipped"));
