@@ -33,6 +33,10 @@ function findBannedVocabulary(text: string): BannedVocabularyFinding[] {
   return findings;
 }
 
+function siftAuthoredOutput(text: string): string {
+  return text.split("\n-- Diffs --------------------------------\n", 1)[0];
+}
+
 describe("evidence-never-verdict doctrine", () => {
   it("finds banned vocabulary by whole word and list", () => {
     expect(findBannedVocabulary("this upgrade appears safe, merge recommended")).toEqual([
@@ -47,7 +51,7 @@ describe("evidence-never-verdict doctrine", () => {
     const outputs = [
       formatHuman(noSignalsReport, false),
       formatHuman(signalCoverageReport, false),
-      formatHuman(signalCoverageReport, true)
+      siftAuthoredOutput(formatHuman(signalCoverageReport, true))
     ];
 
     expect(outputs.flatMap(findBannedVocabulary)).toEqual([]);
@@ -212,7 +216,7 @@ const signalCoverageReport: Report = {
         minifiedHeuristic: true,
         addedLines: 2,
         removedLines: 1,
-        diff: "--- a/dist/bundle.js\n+++ b/dist/bundle.js\n@@ -1 +1 @@\n-const value = 1;\n+const value = 2;"
+        diff: "--- a/dist/bundle.js\n+++ b/dist/bundle.js\n@@ -1 +1 @@\n-const value = 1;\n+const value = 'safe';"
       },
       {
         path: "native/addon.node",
