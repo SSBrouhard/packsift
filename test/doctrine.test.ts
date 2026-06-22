@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatHuman } from "../src/index.js";
-import { Report } from "../src/types.js";
+import { type FileChange, type JsonValue, type Report, type Signal } from "../src/types.js";
 
 const hardBanned = ["safe", "urgent", "recommended", "therefore", "should"] as const;
 const inferenceBanned = ["appears", "likely", "related"] as const;
@@ -33,8 +33,157 @@ function findBannedVocabulary(text: string): BannedVocabularyFinding[] {
   return findings;
 }
 
-function siftAuthoredOutput(text: string): string {
-  return text.split("\n-- Diffs --------------------------------\n", 1)[0];
+function doctrineSubject(report: Report, includeDiffs: boolean): string {
+  return formatHuman(redactPackageControlledReport(report), includeDiffs);
+}
+
+function redactPackageControlledReport(report: Report): Report {
+  return {
+    ...report,
+    packageName: "<package>",
+    oldVersion: "<old-version>",
+    newVersion: "<new-version>",
+    integrityWarnings: report.integrityWarnings.map((warning) => ({
+      ...warning,
+      version: "<version>",
+      expected: "<expected>",
+      actual: "<actual>"
+    })),
+    signals: report.signals.map(redactSignal),
+    files: {
+      summary: report.files.summary,
+      entries: report.files.entries.map(redactFileChange)
+    }
+  };
+}
+
+function redactSignal(signal: Signal): Signal {
+  switch (signal.id) {
+    case "lifecycle-scripts": {
+      const details = signal.details as Record<string, { old: string | null; new: string | null }>;
+      return {
+        ...signal,
+        details: Object.fromEntries(
+          Object.entries(details).map(([name, change]) => [
+            name,
+            { old: redactNullable(change.old), new: redactNullable(change.new) }
+          ])
+        )
+      };
+    }
+    case "maintainer-publisher": {
+      const details = signal.details as {
+        publisher?: { old: string | null; new: string | null } | null;
+        addedMaintainers: string[];
+        removedMaintainers: string[];
+      };
+      return {
+        ...signal,
+        details: {
+          publisher: details.publisher
+            ? { old: redactNullable(details.publisher.old), new: redactNullable(details.publisher.new) }
+            : details.publisher ?? null,
+          addedMaintainers: details.addedMaintainers.map(redactString),
+          removedMaintainers: details.removedMaintainers.map(redactString)
+        }
+      };
+    }
+    case "executable-payloads":
+    case "minified-source": {
+      const details = signal.details as { heuristic?: string; files: string[] };
+      return { ...signal, details: { ...details, files: details.files.map(redactString) } };
+    }
+    case "install-path-network": {
+      const details = signal.details as { heuristic: string; hits: { source: string; terms: string[] }[] };
+      return {
+        ...signal,
+        details: {
+          heuristic: details.heuristic,
+          hits: details.hits.map((hit) => ({ source: redactString(hit.source), terms: hit.terms }))
+        }
+      };
+    }
+    case "new-bin": {
+      const details = signal.details as { added: Record<string, string> };
+      return {
+        ...signal,
+        details: {
+          added: Object.fromEntries(Object.values(details.added).map((target, index) => [`bin${index + 1}`, redactString(target)]))
+        }
+      };
+    }
+    case "size-delta":
+      return signal;
+    case "dependency-fields": {
+      const details = signal.details as Record<
+        string,
+        {
+          added: { name: string; version: string }[];
+          removed: { name: string; version: string }[];
+          changed: { name: string; old: string; new: string }[];
+          interest: string;
+        }
+      >;
+      return {
+        ...signal,
+        details: Object.fromEntries(
+          Object.entries(details).map(([field, diff]) => [
+            field,
+            {
+              added: diff.added.map(() => ({ name: "<dependency>", version: "<version>" })),
+              removed: diff.removed.map(() => ({ name: "<dependency>", version: "<version>" })),
+              changed: diff.changed.map(() => ({ name: "<dependency>", old: "<old-version>", new: "<new-version>" })),
+              interest: diff.interest
+            }
+          ])
+        )
+      };
+    }
+    case "license": {
+      const details = signal.details as {
+        license: { old: string | null; new: string | null } | null;
+        files: { path: string; status: string }[];
+      };
+      return {
+        ...signal,
+        details: {
+          license: details.license
+            ? { old: redactNullable(details.license.old), new: redactNullable(details.license.new) }
+            : null,
+          files: details.files.map((file) => ({ ...file, path: redactString(file.path) }))
+        }
+      };
+    }
+    default:
+      return { ...signal, details: redactJsonStrings(signal.details) };
+  }
+}
+
+function redactFileChange(entry: FileChange): FileChange {
+  return {
+    ...entry,
+    path: redactString(entry.path),
+    oldHash: entry.oldHash === undefined ? undefined : "<old-hash>",
+    newHash: entry.newHash === undefined ? undefined : "<new-hash>",
+    diff: entry.diff === undefined ? undefined : "<diff>"
+  };
+}
+
+function redactJsonStrings(value: JsonValue): JsonValue {
+  if (typeof value === "string") return redactString(value);
+  if (Array.isArray(value)) return value.map(redactJsonStrings);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactJsonStrings(item)]));
+  }
+  return value;
+}
+
+function redactNullable(value: string | null): string | null {
+  return value === null ? null : redactString(value);
+}
+
+function redactString(_value: string): string {
+  return "<value>";
 }
 
 describe("evidence-never-verdict doctrine", () => {
@@ -49,9 +198,9 @@ describe("evidence-never-verdict doctrine", () => {
 
   it("keeps sift-authored human output free of verdict vocabulary", () => {
     const outputs = [
-      formatHuman(noSignalsReport, false),
-      formatHuman(signalCoverageReport, false),
-      siftAuthoredOutput(formatHuman(signalCoverageReport, true))
+      doctrineSubject(noSignalsReport, false),
+      doctrineSubject(signalCoverageReport, false),
+      doctrineSubject(signalCoverageReport, true)
     ];
 
     expect(outputs.flatMap(findBannedVocabulary)).toEqual([]);
@@ -59,7 +208,7 @@ describe("evidence-never-verdict doctrine", () => {
 });
 
 const noSignalsReport: Report = {
-  packageName: "fixture-pkg",
+  packageName: "safe",
   oldVersion: "1.0.0",
   newVersion: "1.0.1",
   integrityWarnings: [],
@@ -68,7 +217,7 @@ const noSignalsReport: Report = {
     summary: { added: 0, removed: 0, changed: 1 },
     entries: [
       {
-        path: "index.js",
+        path: "urgent.js",
         status: "changed",
         oldSize: 18,
         newSize: 18,
@@ -88,7 +237,7 @@ const noSignalsReport: Report = {
 };
 
 const signalCoverageReport: Report = {
-  packageName: "fixture-pkg",
+  packageName: "should",
   oldVersion: "1.0.0",
   newVersion: "2.0.0",
   integrityWarnings: [
@@ -110,30 +259,30 @@ const signalCoverageReport: Report = {
       id: "lifecycle-scripts",
       title: "Lifecycle scripts",
       details: {
-        install: { old: null, new: "node scripts/setup.js" },
-        postinstall: { old: "node scripts/old.js", new: "node scripts/new.js" }
+        install: { old: null, new: "node safe.js" },
+        postinstall: { old: "node likely.js", new: "node recommended.js" }
       }
     },
     {
       id: "maintainer-publisher",
       title: "Maintainer / publisher change",
       details: {
-        publisher: { old: "alice", new: "bob" },
-        addedMaintainers: ["carol"],
-        removedMaintainers: ["dave"]
+        publisher: { old: "safe", new: "recommended" },
+        addedMaintainers: ["urgent"],
+        removedMaintainers: ["related"]
       }
     },
     {
       id: "executable-payloads",
       title: "New executable payloads",
-      details: { files: ["native/addon.node"] }
+      details: { files: ["native/should.node"] }
     },
     {
       id: "minified-source",
       title: "New / newly-minified-or-obfuscated source",
       details: {
         heuristic: "average line length > 500 chars or one long line over 2 KB",
-        files: ["dist/bundle.js"]
+        files: ["dist/likely.js"]
       }
     },
     {
@@ -143,14 +292,14 @@ const signalCoverageReport: Report = {
         heuristic: "lifecycle command plus one-hop local require/import scan",
         hits: [
           { source: "script:install", terms: ["fetch"] },
-          { source: "scripts/setup.js", terms: ["dns", "https"] }
+          { source: "scripts/should.js", terms: ["dns", "https"] }
         ]
       }
     },
     {
       id: "new-bin",
       title: "New bin entries",
-      details: { added: { fixture: "bin/fixture.js" } }
+      details: { added: { recommended: "bin/should.js" } }
     },
     {
       id: "size-delta",
@@ -169,15 +318,15 @@ const signalCoverageReport: Report = {
       title: "Dependency-field changes",
       details: {
         dependencies: {
-          added: [{ name: "alpha", version: "1.0.0" }],
-          removed: [{ name: "beta", version: "1.0.0" }],
-          changed: [{ name: "gamma", old: "1.0.0", new: "2.0.0" }],
+          added: [{ name: "safe", version: "1.0.0" }],
+          removed: [{ name: "urgent", version: "1.0.0" }],
+          changed: [{ name: "likely", old: "1.0.0", new: "2.0.0" }],
           interest: "normal"
         },
         devDependencies: {
           added: [],
           removed: [],
-          changed: [{ name: "delta", old: "1.0.0", new: "1.0.1" }],
+          changed: [{ name: "related", old: "1.0.0", new: "1.0.1" }],
           interest: "lower"
         }
       }
@@ -186,8 +335,8 @@ const signalCoverageReport: Report = {
       id: "license",
       title: "License change",
       details: {
-        license: { old: "MIT", new: "Apache-2.0" },
-        files: [{ path: "LICENSE", status: "changed" }]
+        license: { old: "safe", new: "recommended" },
+        files: [{ path: "LICENSE-urgent", status: "changed" }]
       }
     }
   ],
@@ -195,19 +344,19 @@ const signalCoverageReport: Report = {
     summary: { added: 1, removed: 1, changed: 2 },
     entries: [
       {
-        path: "bin/fixture.js",
+        path: "bin/recommended.js",
         status: "added",
         newSize: 33,
         newHash: "addhash"
       },
       {
-        path: "old/module.js",
+        path: "old/likely.js",
         status: "removed",
         oldSize: 44,
         oldHash: "removehash"
       },
       {
-        path: "dist/bundle.js",
+        path: "dist/safe.js",
         status: "changed",
         oldSize: 2048,
         newSize: 4096,
@@ -219,7 +368,7 @@ const signalCoverageReport: Report = {
         diff: "--- a/dist/bundle.js\n+++ b/dist/bundle.js\n@@ -1 +1 @@\n-const value = 1;\n+const value = 'safe';"
       },
       {
-        path: "native/addon.node",
+        path: "native/should.node",
         status: "changed",
         oldSize: 2048,
         newSize: 4096,
