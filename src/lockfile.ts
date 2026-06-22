@@ -7,7 +7,10 @@ interface NpmLockfile {
 }
 
 interface LockfilePackageEntry {
+  name?: unknown;
   version?: unknown;
+  resolved?: unknown;
+  link?: unknown;
 }
 
 export async function parseLockfile(filePath: string): Promise<VersionSetMap> {
@@ -40,6 +43,7 @@ export function parseLockfileData(lockfile: NpmLockfile, label = "lockfile"): Ve
     if (!name || !isRecord(entry)) continue;
     const version = (entry as LockfilePackageEntry).version;
     if (typeof version !== "string") continue;
+    if (!isRegistryPackageEntry(entry as LockfilePackageEntry, name, version)) continue;
     addVersion(versions, name, version);
   }
 
@@ -57,6 +61,40 @@ function addVersion(versions: VersionSetMap, name: string, version: string): voi
   const set = versions.get(name) ?? new Set<string>();
   set.add(version);
   versions.set(name, set);
+}
+
+function isRegistryPackageEntry(entry: LockfilePackageEntry, pathName: string, version: string): boolean {
+  if (entry.link === true) return false;
+  if (version.startsWith("npm:")) return false;
+  if (typeof entry.name === "string" && entry.name !== pathName) return false;
+  if (typeof entry.resolved !== "string") return false;
+  return isRegistryTarballUrl(entry.resolved, pathName, version);
+}
+
+function isRegistryTarballUrl(resolved: string, packageName: string, version: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(resolved);
+  } catch {
+    return false;
+  }
+
+  if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+
+  let segments: string[];
+  try {
+    segments = decodeURIComponent(url.pathname).split("/").filter(Boolean);
+  } catch {
+    return false;
+  }
+
+  const markerIndex = segments.lastIndexOf("-");
+  const packageSegments = packageName.split("/");
+  if (markerIndex < packageSegments.length || markerIndex + 1 >= segments.length) return false;
+  if (segments.slice(markerIndex - packageSegments.length, markerIndex).join("/") !== packageName) return false;
+
+  const packageBase = packageSegments[packageSegments.length - 1];
+  return segments[markerIndex + 1] === `${packageBase}-${version}.tgz`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyzeBatch, classifyTransitions, formatBatchHuman } from "../src/index.js";
-import { parseArgs, parseBatchArgs } from "../src/cli.js";
+import { applyBatchExitCode, parseArgs, parseBatchArgs } from "../src/cli.js";
 import { FetchResult } from "../src/registry.js";
 import { ClassifiedTransitions, PackageManifest, Report } from "../src/types.js";
 
@@ -143,6 +143,24 @@ describe("batch formatting and CLI parsing", () => {
     expect(() => parseBatchArgs(["--concurrency", "0", "old.json", "new.json"])).toThrow("--concurrency must be a positive integer");
     expect(() => parseBatchArgs(["--concurrency", "1.5", "old.json", "new.json"])).toThrow("--concurrency must be a positive integer");
     expect(() => parseBatchArgs(["--concurrency", "abc", "old.json", "new.json"])).toThrow("--concurrency must be a positive integer");
+  });
+
+  it("rejects batch diffs unless JSON can expose them", () => {
+    expect(() => parseBatchArgs(["--diff", "old.json", "new.json"])).toThrow("sift batch --diff requires --json");
+    expect(parseBatchArgs(["--json", "--diff", "old.json", "new.json"])).toMatchObject({ json: true, diff: true });
+  });
+
+  it("sets a failing exit code for partial batch failures", () => {
+    const originalExitCode = process.exitCode;
+    try {
+      process.exitCode = undefined;
+      applyBatchExitCode({ errors: [] });
+      expect(process.exitCode).toBeUndefined();
+      applyBatchExitCode({ errors: [{ name: "zeta", message: "HTTP 500" }] });
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = originalExitCode;
+    }
   });
 });
 

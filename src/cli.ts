@@ -7,6 +7,7 @@ import { formatBatchHuman, formatHuman } from "./format.js";
 import { parseLockfile } from "./lockfile.js";
 import { fetchArtifacts } from "./registry.js";
 import { assertSamePackage, parsePackageSpec } from "./spec.js";
+import { type BatchReport } from "./types.js";
 
 interface CliOptions {
   json: boolean;
@@ -80,6 +81,11 @@ async function runBatch(options: BatchCliOptions): Promise<void> {
   } else {
     process.stdout.write(formatBatchHuman(report));
   }
+  applyBatchExitCode(report);
+}
+
+export function applyBatchExitCode(report: Pick<BatchReport, "errors">): void {
+  if (report.errors.length > 0) process.exitCode = 1;
 }
 
 export function parseArgs(args: string[]): CliOptions {
@@ -148,6 +154,9 @@ export function parseBatchArgs(args: string[]): BatchCliOptions {
 
   if (options.positionals.length !== 2) {
     throw new Error("Expected exactly two lockfile paths: sift batch <old-package-lock.json> <new-package-lock.json>");
+  }
+  if (options.diff && !options.json) {
+    throw new Error("sift batch --diff requires --json");
   }
 
   return {
