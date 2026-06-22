@@ -6,7 +6,16 @@ Deterministic npm tarball diff CLI with supply-chain tripwires.
 their npm tarballs, hashing the unpacked files, and reporting material
 differences plus deterministic supply-chain-relevant signals.
 
-Evidence, never verdict. There are no risk scores or recommendations.
+## Doctrine: Evidence, Never Verdict
+
+sift puts the facts next to each other. Its own narration never tells you what
+they mean.
+
+The human report lists bytes, hashes, file changes, metadata correlations, and
+deterministic signal matches, then stops. Sift-authored labels avoid merge,
+review, hold, urgent, risk-score, and recommendation-style verdicts. Package
+names, file paths, registry metadata, and `--json` output still preserve source
+data exactly.
 
 ## Requirements
 
