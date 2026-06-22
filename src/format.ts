@@ -1,4 +1,4 @@
-import { FileChange, Report, Signal } from "./types.js";
+import { BatchReport, FileChange, Report, Signal, SkippedReason } from "./types.js";
 
 export function formatHuman(report: Report, includeDiffs: boolean): string {
   const lines: string[] = [];
@@ -42,6 +42,53 @@ export function formatHuman(report: Report, includeDiffs: boolean): string {
   }
 
   return `${lines.join("\n")}\n`;
+}
+
+export function formatBatchHuman(report: BatchReport): string {
+  const lines: string[] = [];
+  lines.push("sift batch");
+  lines.push("");
+  lines.push("-- Analyzed -----------------------------");
+  if (report.analyzed.length === 0) {
+    lines.push("  No analyzed transitions.");
+  } else {
+    for (const entry of report.analyzed) {
+      const summary = entry.report.files.summary;
+      const changedFiles = summary.added + summary.removed + summary.changed;
+      const evidence = formatBatchEvidence(entry.report);
+      lines.push(`  ${entry.name}  ${entry.report.oldVersion} -> ${entry.report.newVersion}   ${changedFiles} changed files; ${evidence}`);
+    }
+  }
+
+  lines.push("");
+  lines.push("-- Skipped ------------------------------");
+  if (report.skipped.length === 0) {
+    lines.push("  No skipped transitions.");
+  } else {
+    for (const entry of report.skipped) {
+      lines.push(`  ${entry.name}  (${formatSkippedReason(entry.reason)})`);
+    }
+  }
+
+  lines.push("");
+  lines.push("-- Errors -------------------------------");
+  if (report.errors.length === 0) {
+    lines.push("  No errors.");
+  } else {
+    for (const entry of report.errors) {
+      lines.push(`  ${entry.name}  ${entry.message}`);
+    }
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
+function formatBatchEvidence(report: Report): string {
+  const parts: string[] = [];
+  const signals = report.signals.map((signal) => signal.id).join(",");
+  if (signals) parts.push(`signals: ${signals}`);
+  if (report.integrityWarnings.length) parts.push(`integrity/shasum mismatches: ${report.integrityWarnings.length}`);
+  return parts.join("; ") || "signals: no signals";
 }
 
 function formatSignal(signal: Signal): string[] {
@@ -121,6 +168,11 @@ function statusLetter(status: string): string {
   if (status === "added") return "A";
   if (status === "removed") return "R";
   return "C";
+}
+
+function formatSkippedReason(reason: SkippedReason): string {
+  if (reason === "multiple-versions") return "multiple versions";
+  return reason;
 }
 
 export function formatBytes(bytes: number): string {

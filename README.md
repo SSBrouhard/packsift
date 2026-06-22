@@ -2,9 +2,11 @@
 
 Deterministic npm tarball diff CLI with supply-chain tripwires.
 
-`sift` compares two published versions of the same npm package by downloading
-their npm tarballs, hashing the unpacked files, and reporting material
-differences plus deterministic supply-chain-relevant signals.
+`sift` compares published npm package versions by downloading their tarballs,
+hashing the unpacked files, and reporting material differences plus
+deterministic supply-chain-relevant signals. It can compare one package
+transition directly, or compare two npm lockfiles and run the same tarball
+analysis for changed registry-backed dependencies.
 
 ## Doctrine: Evidence, Never Verdict
 
@@ -24,18 +26,32 @@ Node.js 20 or newer.
 ## Usage
 
 ```sh
+# Compare one package transition.
 sift <name>@<old> <name>@<new>
 sift lodash@4.17.20 lodash@4.17.21
 sift @scope/pkg@1.2.3 @scope/pkg@1.2.4
+
+# Compare package-lock transitions.
+sift batch <old-package-lock.json> <new-package-lock.json>
+sift batch package-lock.before.json package-lock.json
 ```
 
 Options:
 
 - `--json` emits structured JSON.
 - `--diff` includes full text line diffs for changed text files up to 512 KB.
+  In batch mode, `--diff` requires `--json`.
 - `--registry <url>` selects the npm registry, defaulting to
   `https://registry.npmjs.org`.
 - `--keep` preserves extracted tarballs and temp dirs for debugging.
+- `--concurrency <n>` sets batch fetch/analyze parallelism, defaulting to 4.
+
+Batch mode accepts npm `package-lock.json` v2/v3 files with a `packages` map. It
+only considers entries whose resolved tarball URL matches `--registry`; linked,
+aliased, file, git, off-registry, and unresolved entries are ignored before
+transition classification. Packages are analyzed when both lockfiles contain
+exactly one version and that version changed. Added-only, removed-only, and
+multiple-version packages are listed as skipped.
 
 The npm package is `@ssbrouhard/sift`; the CLI command is `sift`.
 
@@ -48,6 +64,11 @@ modules used by the CLI, but the package does not expose a root library entry.
 omits unchanged files from the report. Changed text files show line counts by
 default; `--diff` adds unified diffs. Binary, non-text, or large changed files
 show size-only changes.
+
+Batch human output has analyzed, skipped, and error sections. Analyzed entries
+summarize changed file counts plus signal and integrity evidence. Per-package
+errors do not stop the rest of the batch, but they set the process exit code to
+1. Use `sift batch --json` for full per-package reports.
 
 Integrity and shasum mismatches are reported as warnings instead of stopping the
 comparison.
@@ -71,6 +92,7 @@ Signals are deterministic tripwires:
 
 ## Scope
 
-`sift` uses published npm artifacts only. It does not clone GitHub repositories,
-call model APIs, ingest advisories, score risk, comment on PRs, or inspect a
-consumer project.
+`sift` uses published npm artifacts only, with lockfiles used only to discover
+package transitions for batch analysis. It does not clone GitHub repositories,
+call model APIs, ingest advisories, score risk, comment on PRs, or inspect
+consumer project source.
