@@ -2,12 +2,14 @@ import { type Advisory } from "./types.js";
 
 const DEFAULT_ENDPOINT = "https://api.osv.dev/v1/query";
 const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_MAX_PAGES = 10;
 const NO_SEVERITY = "(none reported)";
 
 interface FetchAdvisoriesOptions {
   endpoint?: string;
   fetch?: typeof fetch;
   timeoutMs?: number;
+  maxPages?: number;
 }
 
 interface OsvQueryResponse {
@@ -57,12 +59,20 @@ export async function fetchAdvisories(name: string, version: string, options: Fe
   const fetchImpl = options.fetch ?? globalThis.fetch;
   const endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const maxPages = options.maxPages ?? DEFAULT_MAX_PAGES;
   if (!fetchImpl) throw new Error("fetch is not available");
+  if (!Number.isInteger(maxPages) || maxPages < 1) throw new Error("maxPages must be a positive integer");
 
   const vulns: OsvVulnerability[] = [];
+  const seenPageTokens = new Set<string>();
   let pageToken: string | undefined;
+  let pagesFetched = 0;
 
-  do {
+  while (true) {
+    if (pagesFetched >= maxPages) {
+      throw new Error(`OSV.dev pagination did not terminate after ${maxPages} pages`);
+    }
+
     const query: Record<string, unknown> = { package: { name, ecosystem: "npm" }, version };
     if (pageToken !== undefined) query.page_token = pageToken;
 
@@ -80,10 +90,15 @@ export async function fetchAdvisories(name: string, version: string, options: Fe
       throw new Error(`OSV.dev request failed: ${errorMessage(error)}`);
     }
 
+    pagesFetched += 1;
     vulns.push(...(arrayOf(body.vulns) as OsvVulnerability[]));
     pageToken = stringValue(body.next_page_token);
-    if (pageToken === "") pageToken = undefined;
-  } while (pageToken !== undefined);
+    if (pageToken === undefined || pageToken === "") break;
+    if (seenPageTokens.has(pageToken)) {
+      throw new Error(`OSV.dev pagination repeated next_page_token: ${pageToken}`);
+    }
+    seenPageTokens.add(pageToken);
+  }
 
   return vulns.map((vuln) => mapVulnerability(vuln, name));
 }

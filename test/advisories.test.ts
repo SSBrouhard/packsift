@@ -72,6 +72,44 @@ describe("OSV advisory client", () => {
     expect(vulns.map((vuln) => vuln.id)).toEqual(["A", "B"]);
   });
 
+  it("rejects repeated OSV pagination tokens", async () => {
+    const requests: unknown[] = [];
+
+    await expect(
+      fetchAdvisories("pkg", "1.0.0", {
+        fetch: async (_input, init) => {
+          requests.push(JSON.parse(String(init?.body)));
+          return jsonResponse({ vulns: [{ id: `A${requests.length}` }], next_page_token: "same" });
+        }
+      })
+    ).rejects.toThrow("OSV.dev pagination repeated next_page_token: same");
+
+    expect(requests).toEqual([
+      { package: { name: "pkg", ecosystem: "npm" }, version: "1.0.0" },
+      { package: { name: "pkg", ecosystem: "npm" }, version: "1.0.0", page_token: "same" }
+    ]);
+  });
+
+  it("rejects OSV pagination that does not terminate", async () => {
+    const requests: unknown[] = [];
+
+    await expect(
+      fetchAdvisories("pkg", "1.0.0", {
+        maxPages: 3,
+        fetch: async (_input, init) => {
+          requests.push(JSON.parse(String(init?.body)));
+          return jsonResponse({ vulns: [{ id: `A${requests.length}` }], next_page_token: `page-${requests.length}` });
+        }
+      })
+    ).rejects.toThrow("OSV.dev pagination did not terminate after 3 pages");
+
+    expect(requests).toEqual([
+      { package: { name: "pkg", ecosystem: "npm" }, version: "1.0.0" },
+      { package: { name: "pkg", ecosystem: "npm" }, version: "1.0.0", page_token: "page-1" },
+      { package: { name: "pkg", ecosystem: "npm" }, version: "1.0.0", page_token: "page-2" }
+    ]);
+  });
+
   it("maps introduced-only ranges and explicit versions", async () => {
     const vulns = await fetchAdvisories("pkg", "1.0.0", {
       fetch: async () =>
