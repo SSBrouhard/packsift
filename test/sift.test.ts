@@ -329,6 +329,27 @@ describe("advisory sidecar rendering and CLI orchestration", () => {
     expect(output.join("")).not.toContain("Advisory sidecar");
   });
 
+  it("rejects advisories with a custom registry before advisory fetching", async () => {
+    let artifactCalls = 0;
+    let advisoryCalls = 0;
+
+    await expect(
+      runSingleTransition(parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--advisories", "--registry", "https://npm.mycorp.internal"]), {
+        fetchArtifacts: async () => {
+          artifactCalls += 1;
+          return fetchResult("pkg", "1.0.0", "1.0.1");
+        },
+        analyze: async () => reportFor("pkg", "1.0.0", "1.0.1"),
+        fetchAdvisories: async () => {
+          advisoryCalls += 1;
+          return [];
+        }
+      })
+    ).rejects.toThrow("--advisories requires --registry https://registry.npmjs.org");
+    expect(artifactCalls).toBe(0);
+    expect(advisoryCalls).toBe(0);
+  });
+
   it("keeps core report output when advisory fetching fails", async () => {
     const output: string[] = [];
     await runSingleTransition(parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--advisories"]), {

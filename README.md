@@ -49,7 +49,9 @@ Options:
   In batch mode, `--diff` requires `--json`.
 - `--advisories` adds an opt-in OSV.dev sidecar for single-package transitions.
   It queries old and new npm versions, then renders only id, aliases, severity,
-  affected ranges, and reference URLs. It is not supported in batch mode.
+  affected ranges, and reference URLs. It is only accepted when `--registry` is
+  exactly `https://registry.npmjs.org`; custom registries are treated as private
+  and rejected before any OSV.dev query. It is not supported in batch mode.
 - `--registry <url>` selects the npm registry, defaulting to
   `https://registry.npmjs.org`.
 - `--keep` preserves extracted tarballs and temp dirs for debugging.
@@ -113,6 +115,7 @@ GitHub repositories, call model APIs, ingest advisories, score risk, comment on
 PRs, or inspect consumer project source.
 
 `--advisories` is a fenced sidecar exception, not part of the analyzer. It calls
-OSV.dev without authentication for the two requested npm versions, renders
-structured source fields next to the diff, and never maps files to advisories or
-turns advisory data into a verdict.
+OSV.dev without authentication for the two requested npm versions only when the
+registry is exactly `https://registry.npmjs.org`, renders structured source
+fields next to the diff, and never maps files to advisories or turns advisory
+data into a verdict.

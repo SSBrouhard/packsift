@@ -10,6 +10,8 @@ import { fetchArtifacts } from "./registry.js";
 import { assertSamePackage, parsePackageSpec } from "./spec.js";
 import { type Advisory, type AdvisorySidecar, type BatchReport, type Report } from "./types.js";
 
+const DEFAULT_REGISTRY = "https://registry.npmjs.org";
+
 export interface CliOptions {
   json: boolean;
   diff: boolean;
@@ -48,6 +50,7 @@ export async function runSingleTransition(options: CliOptions, deps: SingleTrans
   if (options.positionals.length !== 2) {
     throw new Error("Expected exactly two positional args: sift <name>@<old> <name>@<new>");
   }
+  assertAdvisoryRegistry(options);
 
   const oldSpec = parsePackageSpec(options.positionals[0]);
   const newSpec = parsePackageSpec(options.positionals[1]);
@@ -114,7 +117,7 @@ export function parseArgs(args: string[]): CliOptions {
     json: false,
     diff: false,
     advisories: false,
-    registry: "https://registry.npmjs.org",
+    registry: DEFAULT_REGISTRY,
     keep: false,
     positionals: []
   };
@@ -146,7 +149,7 @@ export function parseBatchArgs(args: string[]): BatchCliOptions {
     json: false,
     diff: false,
     advisories: false,
-    registry: "https://registry.npmjs.org",
+    registry: DEFAULT_REGISTRY,
     keep: false,
     positionals: []
   };
@@ -220,6 +223,12 @@ function settleAdvisoryVersion(version: string, result: PromiseSettledResult<Adv
 
 function withAdvisorySidecar(report: Report, advisorySidecar?: AdvisorySidecar): Report | (Report & { advisorySidecar: AdvisorySidecar }) {
   return advisorySidecar ? { ...report, advisorySidecar } : report;
+}
+
+function assertAdvisoryRegistry(options: Pick<CliOptions, "advisories" | "registry">): void {
+  if (options.advisories && options.registry !== DEFAULT_REGISTRY) {
+    throw new Error(`--advisories requires --registry ${DEFAULT_REGISTRY} to avoid sending custom registry package coordinates to OSV.dev`);
+  }
 }
 
 function errorMessage(error: unknown): string {
