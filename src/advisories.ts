@@ -1,11 +1,13 @@
 import { type Advisory } from "./types.js";
 
 const DEFAULT_ENDPOINT = "https://api.osv.dev/v1/query";
+const DEFAULT_TIMEOUT_MS = 10_000;
 const NO_SEVERITY = "(none reported)";
 
 interface FetchAdvisoriesOptions {
   endpoint?: string;
   fetch?: typeof fetch;
+  timeoutMs?: number;
 }
 
 interface OsvQueryResponse {
@@ -39,6 +41,8 @@ interface OsvRange {
 interface OsvEvent {
   introduced?: unknown;
   fixed?: unknown;
+  last_affected?: unknown;
+  limit?: unknown;
 }
 
 interface OsvReference {
@@ -52,6 +56,7 @@ interface OsvSeverity {
 export async function fetchAdvisories(name: string, version: string, options: FetchAdvisoriesOptions = {}): Promise<Advisory[]> {
   const fetchImpl = options.fetch ?? globalThis.fetch;
   const endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   if (!fetchImpl) throw new Error("fetch is not available");
 
   const vulns: OsvVulnerability[] = [];
@@ -63,11 +68,11 @@ export async function fetchAdvisories(name: string, version: string, options: Fe
 
     let response: Response;
     try {
-      response = await fetchImpl(endpoint, {
+      response = await fetchWithTimeout(fetchImpl, endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(query)
-      });
+      }, timeoutMs);
     } catch (error) {
       throw new Error(`OSV.dev request failed: ${errorMessage(error)}`);
     }
@@ -89,6 +94,31 @@ export async function fetchAdvisories(name: string, version: string, options: Fe
   } while (pageToken !== undefined);
 
   return vulns.map((vuln) => mapVulnerability(vuln, name));
+}
+
+async function fetchWithTimeout(fetchImpl: typeof fetch, endpoint: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  let timedOut = false;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+      reject(new Error(`timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([
+      fetchImpl(endpoint, { ...init, signal: controller.signal }),
+      timeoutPromise
+    ]);
+  } catch (error) {
+    if (timedOut) throw new Error(`timed out after ${timeoutMs}ms`);
+    throw error;
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
 }
 
 function mapVulnerability(vuln: OsvVulnerability, packageName: string): Advisory {
@@ -141,12 +171,10 @@ function mapAffectedRanges(affectedValue: unknown, packageName: string): string[
     for (const range of affectedRanges) {
       ranges.push(...mapRangeEvents(range.events));
     }
-    if (affectedRanges.length === 0) {
-      versions.push(...arrayOf(affected.versions).flatMap((version) => {
-        const value = stringValue(version);
-        return value === undefined ? [] : [value];
-      }));
-    }
+    versions.push(...arrayOf(affected.versions).flatMap((version) => {
+      const value = stringValue(version);
+      return value === undefined ? [] : [value];
+    }));
   }
 
   return ranges.length > 0 ? ranges : versions;
@@ -173,6 +201,20 @@ function mapRangeEvents(eventsValue: unknown): string[] {
     const fixed = stringValue(event.fixed);
     if (fixed !== undefined) {
       output.push(introduced === undefined ? `<${fixed}` : `>=${introduced} <${fixed}`);
+      introduced = undefined;
+      continue;
+    }
+
+    const lastAffected = stringValue(event.last_affected);
+    if (lastAffected !== undefined) {
+      output.push(introduced === undefined ? `<=${lastAffected}` : `>=${introduced} <=${lastAffected}`);
+      introduced = undefined;
+      continue;
+    }
+
+    const limit = stringValue(event.limit);
+    if (limit !== undefined) {
+      output.push(introduced === undefined ? `<${limit}` : `>=${introduced} <${limit}`);
       introduced = undefined;
     }
   }

@@ -92,6 +92,58 @@ describe("OSV advisory client", () => {
     expect(vulns.map((vuln) => vuln.affectedRanges)).toEqual([[">=0.26.0"], ["1.0.0", "1.0.1"]]);
   });
 
+  it("maps last affected and limit range events", async () => {
+    const vulns = await fetchAdvisories("pkg", "1.0.0", {
+      fetch: async () =>
+        jsonResponse({
+          vulns: [
+            {
+              id: "A",
+              affected: [
+                {
+                  package: { name: "pkg", ecosystem: "npm" },
+                  ranges: [
+                    {
+                      events: [
+                        { introduced: "1.0.0" },
+                        { last_affected: "1.5.0" },
+                        { introduced: "2.0.0" },
+                        { limit: "2.3.0" }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        })
+    });
+
+    expect(vulns[0].affectedRanges).toEqual([">=1.0.0 <=1.5.0", ">=2.0.0 <2.3.0"]);
+  });
+
+  it("falls back to explicit versions when ranges cannot be mapped", async () => {
+    const vulns = await fetchAdvisories("pkg", "1.0.0", {
+      fetch: async () =>
+        jsonResponse({
+          vulns: [
+            {
+              id: "A",
+              affected: [
+                {
+                  package: { name: "pkg", ecosystem: "npm" },
+                  ranges: [{ events: [{ unhandled: "shape" }] }],
+                  versions: ["1.0.0", "1.0.1"]
+                }
+              ]
+            }
+          ]
+        })
+    });
+
+    expect(vulns[0].affectedRanges).toEqual(["1.0.0", "1.0.1"]);
+  });
+
   it("uses package-specific affected severity and ranges", async () => {
     const vulns = await fetchAdvisories("pkg", "1.0.0", {
       fetch: async () =>
@@ -152,6 +204,15 @@ describe("OSV advisory client", () => {
     await expect(fetchAdvisories("pkg", "1.0.0", { fetch: async () => new Response("nope", { status: 503 }) })).rejects.toThrow("OSV.dev request failed: HTTP 503");
     await expect(fetchAdvisories("pkg", "1.0.0", { fetch: async () => { throw new Error("socket closed"); } })).rejects.toThrow("OSV.dev request failed: socket closed");
     await expect(fetchAdvisories("pkg", "1.0.0", { fetch: async () => new Response("{", { status: 200 }) })).rejects.toThrow("OSV.dev response was not valid JSON");
+  });
+
+  it("times out unresponsive requests", async () => {
+    const stalledFetch: typeof fetch = async (_input, init) => {
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      return new Promise<Response>(() => {});
+    };
+
+    await expect(fetchAdvisories("pkg", "1.0.0", { fetch: stalledFetch, timeoutMs: 1 })).rejects.toThrow("OSV.dev request failed: timed out after 1ms");
   });
 });
 
