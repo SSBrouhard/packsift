@@ -66,26 +66,18 @@ export async function fetchAdvisories(name: string, version: string, options: Fe
     const query: Record<string, unknown> = { package: { name, ecosystem: "npm" }, version };
     if (pageToken !== undefined) query.page_token = pageToken;
 
-    let response: Response;
+    let body: OsvQueryResponse;
     try {
-      response = await fetchWithTimeout(fetchImpl, endpoint, {
+      body = await fetchOsvPage(fetchImpl, endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(query)
       }, timeoutMs);
     } catch (error) {
+      if (error instanceof InvalidJsonError) {
+        throw new Error(`OSV.dev response was not valid JSON: ${error.message}`);
+      }
       throw new Error(`OSV.dev request failed: ${errorMessage(error)}`);
-    }
-
-    if (!response.ok) {
-      throw new Error(`OSV.dev request failed: HTTP ${response.status}`);
-    }
-
-    let body: OsvQueryResponse;
-    try {
-      body = (await response.json()) as OsvQueryResponse;
-    } catch (error) {
-      throw new Error(`OSV.dev response was not valid JSON: ${errorMessage(error)}`);
     }
 
     vulns.push(...(arrayOf(body.vulns) as OsvVulnerability[]));
@@ -96,7 +88,9 @@ export async function fetchAdvisories(name: string, version: string, options: Fe
   return vulns.map((vuln) => mapVulnerability(vuln, name));
 }
 
-async function fetchWithTimeout(fetchImpl: typeof fetch, endpoint: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+class InvalidJsonError extends Error {}
+
+async function fetchOsvPage(fetchImpl: typeof fetch, endpoint: string, init: RequestInit, timeoutMs: number): Promise<OsvQueryResponse> {
   const controller = new AbortController();
   let timedOut = false;
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -109,10 +103,22 @@ async function fetchWithTimeout(fetchImpl: typeof fetch, endpoint: string, init:
   });
 
   try {
-    return await Promise.race([
+    const response = await Promise.race([
       fetchImpl(endpoint, { ...init, signal: controller.signal }),
       timeoutPromise
     ]);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    try {
+      return await Promise.race([
+        response.json() as Promise<OsvQueryResponse>,
+        timeoutPromise
+      ]);
+    } catch (error) {
+      if (timedOut) throw new Error(`timed out after ${timeoutMs}ms`);
+      throw new InvalidJsonError(errorMessage(error));
+    }
   } catch (error) {
     if (timedOut) throw new Error(`timed out after ${timeoutMs}ms`);
     throw error;

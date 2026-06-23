@@ -214,6 +214,19 @@ describe("OSV advisory client", () => {
 
     await expect(fetchAdvisories("pkg", "1.0.0", { fetch: stalledFetch, timeoutMs: 1 })).rejects.toThrow("OSV.dev request failed: timed out after 1ms");
   });
+
+  it("times out stalled response bodies", async () => {
+    const stalledBodyFetch: typeof fetch = async (_input, init) => {
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      return {
+        ok: true,
+        status: 200,
+        json: () => new Promise<unknown>(() => {})
+      } as Response;
+    };
+
+    await expect(fetchAdvisories("pkg", "1.0.0", { fetch: stalledBodyFetch, timeoutMs: 1 })).rejects.toThrow("OSV.dev request failed: timed out after 1ms");
+  });
 });
 
 function jsonResponse(body: unknown): Response {
