@@ -10,6 +10,7 @@ interface FetchAdvisoriesOptions {
 
 interface OsvQueryResponse {
   vulns?: OsvVulnerability[];
+  next_page_token?: unknown;
 }
 
 interface OsvVulnerability {
@@ -26,6 +27,7 @@ interface OsvAffected {
     ecosystem?: unknown;
     name?: unknown;
   };
+  severity?: unknown;
   ranges?: unknown;
   versions?: unknown;
 }
@@ -52,40 +54,52 @@ export async function fetchAdvisories(name: string, version: string, options: Fe
   const endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
   if (!fetchImpl) throw new Error("fetch is not available");
 
-  let response: Response;
-  try {
-    response = await fetchImpl(endpoint, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ package: { name, ecosystem: "npm" }, version })
-    });
-  } catch (error) {
-    throw new Error(`OSV.dev request failed: ${errorMessage(error)}`);
-  }
+  const vulns: OsvVulnerability[] = [];
+  let pageToken: string | undefined;
 
-  if (!response.ok) {
-    throw new Error(`OSV.dev request failed: HTTP ${response.status}`);
-  }
+  do {
+    const query: Record<string, unknown> = { package: { name, ecosystem: "npm" }, version };
+    if (pageToken !== undefined) query.page_token = pageToken;
 
-  let body: OsvQueryResponse;
-  try {
-    body = (await response.json()) as OsvQueryResponse;
-  } catch (error) {
-    throw new Error(`OSV.dev response was not valid JSON: ${errorMessage(error)}`);
-  }
+    let response: Response;
+    try {
+      response = await fetchImpl(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(query)
+      });
+    } catch (error) {
+      throw new Error(`OSV.dev request failed: ${errorMessage(error)}`);
+    }
 
-  return (arrayOf(body.vulns) as OsvVulnerability[]).map(mapVulnerability);
+    if (!response.ok) {
+      throw new Error(`OSV.dev request failed: HTTP ${response.status}`);
+    }
+
+    let body: OsvQueryResponse;
+    try {
+      body = (await response.json()) as OsvQueryResponse;
+    } catch (error) {
+      throw new Error(`OSV.dev response was not valid JSON: ${errorMessage(error)}`);
+    }
+
+    vulns.push(...(arrayOf(body.vulns) as OsvVulnerability[]));
+    pageToken = stringValue(body.next_page_token);
+    if (pageToken === "") pageToken = undefined;
+  } while (pageToken !== undefined);
+
+  return vulns.map((vuln) => mapVulnerability(vuln, name));
 }
 
-function mapVulnerability(vuln: OsvVulnerability): Advisory {
+function mapVulnerability(vuln: OsvVulnerability, packageName: string): Advisory {
   return {
     id: stringValue(vuln.id) ?? "(unknown id)",
     aliases: arrayOf(vuln.aliases).flatMap((alias) => {
       const value = stringValue(alias);
       return value === undefined ? [] : [value];
     }),
-    severity: mapSeverity(vuln),
-    affectedRanges: mapAffectedRanges(vuln.affected),
+    severity: mapSeverity(vuln, packageName),
+    affectedRanges: mapAffectedRanges(vuln.affected, packageName),
     references: arrayOf(vuln.references).flatMap((reference) => {
       const url = stringValue((reference as OsvReference).url);
       return url === undefined ? [] : [url];
@@ -93,25 +107,36 @@ function mapVulnerability(vuln: OsvVulnerability): Advisory {
   };
 }
 
-function mapSeverity(vuln: OsvVulnerability): string {
+function mapSeverity(vuln: OsvVulnerability, packageName: string): string {
+  for (const affected of matchingAffectedEntries(vuln.affected, packageName)) {
+    const severity = mapSeverityEntries(affected.severity);
+    if (severity) return severity;
+  }
+
   const databaseSpecific = objectValue(vuln.database_specific);
   const databaseSeverity = stringValue(databaseSpecific?.severity);
   if (databaseSeverity) return databaseSeverity;
 
-  for (const severity of arrayOf(vuln.severity)) {
-    const score = stringValue((severity as OsvSeverity).score);
-    if (score) return score;
-  }
+  const topLevelSeverity = mapSeverityEntries(vuln.severity);
+  if (topLevelSeverity) return topLevelSeverity;
 
   return NO_SEVERITY;
 }
 
-function mapAffectedRanges(affectedValue: unknown): string[] {
+function mapSeverityEntries(severityValue: unknown): string | undefined {
+  for (const severity of arrayOf(severityValue)) {
+    const score = stringValue((severity as OsvSeverity).score);
+    if (score) return score;
+  }
+
+  return undefined;
+}
+
+function mapAffectedRanges(affectedValue: unknown, packageName: string): string[] {
   const ranges: string[] = [];
   const versions: string[] = [];
 
-  for (const affected of arrayOf(affectedValue) as OsvAffected[]) {
-    if (stringValue(affected.package?.ecosystem) !== "npm") continue;
+  for (const affected of matchingAffectedEntries(affectedValue, packageName)) {
     const affectedRanges = arrayOf(affected.ranges) as OsvRange[];
     for (const range of affectedRanges) {
       ranges.push(...mapRangeEvents(range.events));
@@ -125,6 +150,13 @@ function mapAffectedRanges(affectedValue: unknown): string[] {
   }
 
   return ranges.length > 0 ? ranges : versions;
+}
+
+function matchingAffectedEntries(affectedValue: unknown, packageName: string): OsvAffected[] {
+  return (arrayOf(affectedValue) as OsvAffected[]).filter((affected) => (
+    stringValue(affected.package?.ecosystem) === "npm" &&
+    stringValue(affected.package?.name) === packageName
+  ));
 }
 
 function mapRangeEvents(eventsValue: unknown): string[] {

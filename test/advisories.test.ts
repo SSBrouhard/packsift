@@ -49,6 +49,29 @@ describe("OSV advisory client", () => {
     await expect(fetchAdvisories("pkg", "1.0.0", { fetch: async () => jsonResponse({ vulns: [] }) })).resolves.toEqual([]);
   });
 
+  it("follows OSV pagination tokens", async () => {
+    const requests: unknown[] = [];
+    const responses = [
+      jsonResponse({ vulns: [{ id: "A" }], next_page_token: "second" }),
+      jsonResponse({ next_page_token: "third" }),
+      jsonResponse({ vulns: [{ id: "B" }] })
+    ];
+
+    const vulns = await fetchAdvisories("pkg", "1.0.0", {
+      fetch: async (_input, init) => {
+        requests.push(JSON.parse(String(init?.body)));
+        return responses.shift() ?? jsonResponse({ vulns: [] });
+      }
+    });
+
+    expect(requests).toEqual([
+      { package: { name: "pkg", ecosystem: "npm" }, version: "1.0.0" },
+      { package: { name: "pkg", ecosystem: "npm" }, version: "1.0.0", page_token: "second" },
+      { package: { name: "pkg", ecosystem: "npm" }, version: "1.0.0", page_token: "third" }
+    ]);
+    expect(vulns.map((vuln) => vuln.id)).toEqual(["A", "B"]);
+  });
+
   it("maps introduced-only ranges and explicit versions", async () => {
     const vulns = await fetchAdvisories("pkg", "1.0.0", {
       fetch: async () =>
@@ -56,17 +79,59 @@ describe("OSV advisory client", () => {
           vulns: [
             {
               id: "A",
-              affected: [{ package: { ecosystem: "npm" }, ranges: [{ events: [{ introduced: "0.26.0" }] }] }]
+              affected: [{ package: { name: "pkg", ecosystem: "npm" }, ranges: [{ events: [{ introduced: "0.26.0" }] }] }]
             },
             {
               id: "B",
-              affected: [{ package: { ecosystem: "npm" }, versions: ["1.0.0", "1.0.1"] }]
+              affected: [{ package: { name: "pkg", ecosystem: "npm" }, versions: ["1.0.0", "1.0.1"] }]
             }
           ]
         })
     });
 
     expect(vulns.map((vuln) => vuln.affectedRanges)).toEqual([[">=0.26.0"], ["1.0.0", "1.0.1"]]);
+  });
+
+  it("uses package-specific affected severity and ranges", async () => {
+    const vulns = await fetchAdvisories("pkg", "1.0.0", {
+      fetch: async () =>
+        jsonResponse({
+          vulns: [
+            {
+              id: "A",
+              database_specific: { severity: "LOW" },
+              severity: [{ score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L" }],
+              affected: [
+                {
+                  package: { name: "other", ecosystem: "npm" },
+                  severity: [{ score: "CRITICAL" }],
+                  ranges: [{ events: [{ introduced: "9.0.0" }, { fixed: "9.0.1" }] }]
+                },
+                {
+                  package: { name: "pkg", ecosystem: "npm" },
+                  severity: [{ score: "MEDIUM" }],
+                  ranges: [{ events: [{ introduced: "1.0.0" }, { fixed: "1.0.1" }] }]
+                },
+                {
+                  package: { name: "pkg", ecosystem: "PyPI" },
+                  severity: [{ score: "HIGH" }],
+                  ranges: [{ events: [{ introduced: "2.0.0" }, { fixed: "2.0.1" }] }]
+                }
+              ]
+            }
+          ]
+        })
+    });
+
+    expect(vulns).toEqual([
+      {
+        id: "A",
+        aliases: [],
+        severity: "MEDIUM",
+        affectedRanges: [">=1.0.0 <1.0.1"],
+        references: []
+      }
+    ]);
   });
 
   it("falls back to CVSS score and then none reported for severity", async () => {
