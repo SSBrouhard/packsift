@@ -85,7 +85,9 @@ With `--advisories`, single-transition output adds an `Advisory sidecar` block
 after the files block. Empty OSV results render `none returned`. OSV failures
 are non-fatal: the tarball report still prints, and the affected version says
 `advisories unavailable: <reason>`. JSON includes `advisorySidecar` only when
-the flag is set.
+the flag is set. The sidecar records `enabled`, `source`, `fetchedAt`,
+`oldVersion`, and `newVersion`; each version records `version`, `vulns`, and
+optional `unavailable`.
 
 Integrity and shasum mismatches are reported as warnings instead of stopping the
 comparison.
@@ -117,5 +119,5 @@ PRs, or inspect consumer project source.
 `--advisories` is a fenced sidecar exception, not part of the analyzer. It calls
 OSV.dev without authentication for the two requested npm versions only when the
 registry is exactly `https://registry.npmjs.org`, renders structured source
-fields next to the diff, and never maps files to advisories or turns advisory
-data into a verdict.
+fields alongside the tarball report, and never maps files to advisories or turns
+advisory data into a verdict.

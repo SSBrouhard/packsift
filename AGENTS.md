@@ -14,4 +14,4 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 - CI runs on push and pull request with Node.js 20, then typecheck, test, and build.
 - The analyzer strips the npm tarball `package/` prefix, hashes raw bytes, drops unchanged files entirely, and only generates full text diffs when `--diff` is requested.
 - Batch mode parses npm package-lock v2/v3 `packages` maps, ignores non-registry/link/alias/off-registry entries, analyzes changed single-version transitions, and skips added, removed, or multiple-version packages.
-- Evidence-never-verdict enforcement belongs on sift-authored `formatHuman` and `formatBatchHuman` output only; docs and fixture package/user/registry data may mention doctrine vocabulary without failing the invariant.
+- Evidence-never-verdict enforcement belongs on sift-authored `formatHuman`, `formatBatchHuman`, and `formatAdvisorySidecar` output only; docs and fixture package/user/registry data may mention doctrine vocabulary without failing the invariant.
