@@ -5,8 +5,9 @@ import path from "node:path";
 import * as tar from "tar";
 import { describe, expect, it } from "vitest";
 import { analyze, formatHuman, parsePackageSpec, verifyBytes } from "../src/index.js";
+import { parseArgs, runSingleTransition } from "../src/cli.js";
 import { fetchArtifacts } from "../src/registry.js";
-import { PackageManifest, Report } from "../src/types.js";
+import { Advisory, PackageManifest, Report } from "../src/types.js";
 
 describe("package specs", () => {
   it("parses scoped package specs from the final @", () => {
@@ -247,6 +248,141 @@ describe("reports", () => {
   });
 });
 
+describe("advisory sidecar rendering and CLI orchestration", () => {
+  it("renders old advisory plus empty new version in the target human shape", async () => {
+    const report = await run();
+    const output = formatHuman(report, false, {
+      enabled: true,
+      source: "OSV.dev",
+      fetchedAt: "2026-06-23T12:00:00.000Z",
+      oldVersion: { version: "0.28.16", vulns: [sampleAdvisory] },
+      newVersion: { version: "0.28.17", vulns: [] }
+    });
+
+    expect(output).toContain("-- Files --------------------------------\n");
+    expect(output).toContain("-- Advisory sidecar: OSV.dev fetched 2026-06-23T12:00:00.000Z --");
+    expect(output).toContain("  old version 0.28.16\n    GHSA-pv5w-4p9q-p3v2");
+    expect(output).toContain("      aliases: CVE-2026-44635");
+    expect(output).toContain("      severity: HIGH");
+    expect(output).toContain("      affected ranges: >=0.26.0 <0.28.17");
+    expect(output).toContain("      references:\n        - https://github.com/kysely-org/kysely/security/advisories/GHSA-pv5w-4p9q-p3v2");
+    expect(output).toContain("  new version 0.28.17\n    none returned");
+  });
+
+  it("renders empty and unavailable advisory versions without safety wording", async () => {
+    const report = await run();
+    const bothEmpty = formatHuman(report, false, {
+      enabled: true,
+      source: "OSV.dev",
+      fetchedAt: "2026-06-23T12:00:00.000Z",
+      oldVersion: { version: "1.0.0", vulns: [] },
+      newVersion: { version: "1.0.1", vulns: [] }
+    });
+    expect(bothEmpty.match(/none returned/g)).toHaveLength(2);
+    expect(bothEmpty).not.toMatch(/\b(safe|clear|clean)\b/i);
+
+    const partialFailure = formatHuman(report, false, {
+      enabled: true,
+      source: "OSV.dev",
+      fetchedAt: "2026-06-23T12:00:00.000Z",
+      oldVersion: { version: "1.0.0", vulns: [], unavailable: "OSV.dev request failed: HTTP 503" },
+      newVersion: { version: "1.0.1", vulns: [sampleAdvisory] }
+    });
+    expect(partialFailure).toContain("advisories unavailable: OSV.dev request failed: HTTP 503");
+    expect(partialFailure).toContain("new version 1.0.1\n    GHSA-pv5w-4p9q-p3v2");
+  });
+
+  it("parses bare --advisories and rejects v0 values", () => {
+    expect(parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--advisories"])).toMatchObject({ advisories: true });
+    expect(() => parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--advisories=summary"])).toThrow("--advisories values are not supported in v0");
+  });
+
+  it("fetches both advisory versions only when requested", async () => {
+    const calls: string[] = [];
+    const output: string[] = [];
+    await runSingleTransition(parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--advisories"]), {
+      fetchArtifacts: async () => fetchResult("pkg", "1.0.0", "1.0.1"),
+      analyze: async () => reportFor("pkg", "1.0.0", "1.0.1"),
+      fetchAdvisories: async (_name, version) => {
+        calls.push(version);
+        return version === "1.0.0" ? [sampleAdvisory] : [];
+      },
+      now: () => new Date("2026-06-23T12:00:00.000Z"),
+      write: (text) => output.push(text)
+    });
+
+    expect(calls).toEqual(["1.0.0", "1.0.1"]);
+    expect(output.join("")).toContain("-- Advisory sidecar: OSV.dev fetched 2026-06-23T12:00:00.000Z --");
+
+    calls.length = 0;
+    output.length = 0;
+    await runSingleTransition(parseArgs(["pkg@1.0.0", "pkg@1.0.1"]), {
+      fetchArtifacts: async () => fetchResult("pkg", "1.0.0", "1.0.1"),
+      analyze: async () => reportFor("pkg", "1.0.0", "1.0.1"),
+      fetchAdvisories: async (_name, version) => {
+        calls.push(version);
+        return [];
+      },
+      write: (text) => output.push(text)
+    });
+    expect(calls).toEqual([]);
+    expect(output.join("")).not.toContain("Advisory sidecar");
+  });
+
+  it("keeps core report output when advisory fetching fails", async () => {
+    const output: string[] = [];
+    await runSingleTransition(parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--advisories"]), {
+      fetchArtifacts: async () => fetchResult("pkg", "1.0.0", "1.0.1"),
+      analyze: async () => reportFor("pkg", "1.0.0", "1.0.1"),
+      fetchAdvisories: async (_name, version) => {
+        if (version === "1.0.0") throw new Error("OSV.dev request failed: HTTP 503");
+        return [];
+      },
+      now: () => new Date("2026-06-23T12:00:00.000Z"),
+      write: (text) => output.push(text)
+    });
+
+    const text = output.join("");
+    expect(text).toContain("sift  pkg@1.0.0 -> 1.0.1");
+    expect(text).toContain("-- Files --------------------------------");
+    expect(text).toContain("old version 1.0.0\n    advisories unavailable: OSV.dev request failed: HTTP 503");
+    expect(text).toContain("new version 1.0.1\n    none returned");
+  });
+
+  it("adds advisorySidecar to JSON only when --advisories is set", async () => {
+    const withOutput: string[] = [];
+    await runSingleTransition(parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--json", "--advisories"]), {
+      fetchArtifacts: async () => fetchResult("pkg", "1.0.0", "1.0.1"),
+      analyze: async () => reportFor("pkg", "1.0.0", "1.0.1"),
+      fetchAdvisories: async () => [],
+      now: () => new Date("2026-06-23T12:00:00.000Z"),
+      write: (text) => withOutput.push(text)
+    });
+    const withJson = JSON.parse(withOutput.join(""));
+    expect(withJson.advisorySidecar).toMatchObject({
+      enabled: true,
+      source: "OSV.dev",
+      fetchedAt: "2026-06-23T12:00:00.000Z",
+      oldVersion: { version: "1.0.0", vulns: [] },
+      newVersion: { version: "1.0.1", vulns: [] }
+    });
+    expect(withJson.advisories).toBeUndefined();
+
+    const withoutOutput: string[] = [];
+    await runSingleTransition(parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--json"]), {
+      fetchArtifacts: async () => fetchResult("pkg", "1.0.0", "1.0.1"),
+      analyze: async () => reportFor("pkg", "1.0.0", "1.0.1"),
+      fetchAdvisories: async () => {
+        throw new Error("must not run");
+      },
+      write: (text) => withoutOutput.push(text)
+    });
+    const withoutJson = JSON.parse(withoutOutput.join(""));
+    expect(withoutJson.advisorySidecar).toBeUndefined();
+    expect(withoutJson.advisories).toBeUndefined();
+  });
+});
+
 interface RunOptions {
   packageName?: string;
   oldVersion?: string;
@@ -289,6 +425,43 @@ async function run(options: RunOptions = {}): Promise<Report> {
     { includeDiffs: options.includeDiffs }
   );
 }
+
+function fetchResult(name: string, oldVersion: string, newVersion: string) {
+  return {
+    oldArtifacts: { spec: { raw: `${name}@${oldVersion}`, name, version: oldVersion }, registryManifest: { name, version: oldVersion }, tarballPath: "old.tgz", extractDir: "old", integrity: {} },
+    newArtifacts: { spec: { raw: `${name}@${newVersion}`, name, version: newVersion }, registryManifest: { name, version: newVersion }, tarballPath: "new.tgz", extractDir: "new", integrity: {} },
+    integrityWarnings: [],
+    cleanup: async () => undefined
+  };
+}
+
+function reportFor(name: string, oldVersion: string, newVersion: string): Report {
+  return {
+    packageName: name,
+    oldVersion,
+    newVersion,
+    integrityWarnings: [],
+    signals: [],
+    files: {
+      summary: { added: 1, removed: 0, changed: 0 },
+      entries: [{ path: "index.js", status: "added", newSize: 10 }]
+    },
+    sizeDelta: {
+      oldBytes: 0,
+      newBytes: 10,
+      fired: false,
+      threshold: "> 2x or > +1 MB"
+    }
+  };
+}
+
+const sampleAdvisory: Advisory = {
+  id: "GHSA-pv5w-4p9q-p3v2",
+  aliases: ["CVE-2026-44635"],
+  severity: "HIGH",
+  affectedRanges: [">=0.26.0 <0.28.17"],
+  references: ["https://github.com/kysely-org/kysely/security/advisories/GHSA-pv5w-4p9q-p3v2"]
+};
 
 async function materialize(root: string, files: Record<string, string | Buffer>): Promise<void> {
   for (const [filePath, contents] of Object.entries(files)) {

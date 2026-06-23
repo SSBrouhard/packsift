@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { formatBatchHuman, formatHuman } from "../src/index.js";
-import { type BatchReport, type FileChange, type JsonValue, type Report, type Signal } from "../src/types.js";
+import { formatAdvisorySidecar, formatBatchHuman, formatHuman } from "../src/index.js";
+import { type AdvisorySidecar, type BatchReport, type FileChange, type JsonValue, type Report, type Signal } from "../src/types.js";
 
 const hardBanned = [
   "merge",
@@ -220,7 +220,8 @@ describe("evidence-never-verdict doctrine", () => {
       doctrineSubject(noSignalsReport, false),
       doctrineSubject(signalCoverageReport, false),
       doctrineSubject(signalCoverageReport, true),
-      formatBatchHuman(batchCoverageReport)
+      formatBatchHuman(batchCoverageReport),
+      formatAdvisorySidecar(advisoryCoverageSidecar).join("\n")
     ];
 
     expect(outputs.flatMap(findBannedVocabulary)).toEqual([]);
@@ -435,4 +436,23 @@ const batchCoverageReport: BatchReport = {
     { name: "gone-only", reason: "removed" }
   ],
   errors: [{ name: "fetch-error", message: "HTTP 500" }]
+};
+
+const advisoryCoverageSidecar: AdvisorySidecar = {
+  enabled: true,
+  source: "OSV.dev",
+  fetchedAt: "2026-06-23T12:00:00.000Z",
+  oldVersion: {
+    version: "1.0.0",
+    vulns: [
+      {
+        id: "ADV-1",
+        aliases: ["CVE-1"],
+        severity: "MEDIUM",
+        affectedRanges: [">=1.0.0 <1.0.1"],
+        references: ["https://example.test/advisory"]
+      }
+    ]
+  },
+  newVersion: { version: "1.0.1", vulns: [], unavailable: "HTTP 500" }
 };
