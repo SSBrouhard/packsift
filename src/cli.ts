@@ -2,16 +2,20 @@
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { analyze } from "./analyze.js";
+import { fetchAdvisories } from "./advisories.js";
 import { analyzeBatch, classifyTransitions } from "./batch.js";
 import { formatBatchHuman, formatHuman } from "./format.js";
 import { parseLockfile } from "./lockfile.js";
 import { fetchArtifacts } from "./registry.js";
 import { assertSamePackage, parsePackageSpec } from "./spec.js";
-import { type BatchReport } from "./types.js";
+import { type Advisory, type AdvisorySidecar, type BatchReport, type Report } from "./types.js";
 
-interface CliOptions {
+const DEFAULT_REGISTRY = "https://registry.npmjs.org";
+
+export interface CliOptions {
   json: boolean;
   diff: boolean;
+  advisories: boolean;
   registry: string;
   keep: boolean;
   positionals: string[];
@@ -31,17 +35,34 @@ async function main(): Promise<void> {
   }
 
   const options = parseArgs(argv);
+  await runSingleTransition(options);
+}
+
+interface SingleTransitionDeps {
+  fetchArtifacts?: typeof fetchArtifacts;
+  analyze?: typeof analyze;
+  fetchAdvisories?: typeof fetchAdvisories;
+  now?: () => Date;
+  write?: (text: string) => void;
+}
+
+export async function runSingleTransition(options: CliOptions, deps: SingleTransitionDeps = {}): Promise<void> {
   if (options.positionals.length !== 2) {
     throw new Error("Expected exactly two positional args: sift <name>@<old> <name>@<new>");
   }
+  assertAdvisoryRegistry(options);
 
   const oldSpec = parsePackageSpec(options.positionals[0]);
   const newSpec = parsePackageSpec(options.positionals[1]);
   assertSamePackage(oldSpec, newSpec);
 
-  const fetched = await fetchArtifacts(oldSpec, newSpec, { registry: options.registry, keep: options.keep });
+  const fetchArtifactsImpl = deps.fetchArtifacts ?? fetchArtifacts;
+  const analyzeImpl = deps.analyze ?? analyze;
+  const write = deps.write ?? ((text: string) => process.stdout.write(text));
+
+  const fetched = await fetchArtifactsImpl(oldSpec, newSpec, { registry: options.registry, keep: options.keep });
   try {
-    const report = await analyze(
+    const report = await analyzeImpl(
       {
         packageName: oldSpec.name,
         oldVersion: oldSpec.version,
@@ -54,11 +75,14 @@ async function main(): Promise<void> {
       },
       { includeDiffs: options.diff }
     );
+    const advisorySidecar = options.advisories
+      ? await buildAdvisorySidecar(oldSpec.name, oldSpec.version, newSpec.version, deps.fetchAdvisories ?? fetchAdvisories, deps.now ?? (() => new Date()))
+      : undefined;
 
     if (options.json) {
-      process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+      write(`${JSON.stringify(withAdvisorySidecar(report, advisorySidecar), null, 2)}\n`);
     } else {
-      process.stdout.write(formatHuman(report, options.diff));
+      write(formatHuman(report, options.diff, advisorySidecar));
     }
   } finally {
     await fetched.cleanup();
@@ -92,7 +116,8 @@ export function parseArgs(args: string[]): CliOptions {
   const options: CliOptions = {
     json: false,
     diff: false,
-    registry: "https://registry.npmjs.org",
+    advisories: false,
+    registry: DEFAULT_REGISTRY,
     keep: false,
     positionals: []
   };
@@ -101,6 +126,8 @@ export function parseArgs(args: string[]): CliOptions {
     const arg = args[index];
     if (arg === "--json") options.json = true;
     else if (arg === "--diff") options.diff = true;
+    else if (arg === "--advisories") options.advisories = true;
+    else if (arg.startsWith("--advisories=")) throw new Error("--advisories values are not supported in v0; use bare --advisories");
     else if (arg === "--keep") options.keep = true;
     else if (arg === "--registry") {
       const value = args[index + 1];
@@ -121,7 +148,8 @@ export function parseBatchArgs(args: string[]): BatchCliOptions {
   const options: CliOptions = {
     json: false,
     diff: false,
-    registry: "https://registry.npmjs.org",
+    advisories: false,
+    registry: DEFAULT_REGISTRY,
     keep: false,
     positionals: []
   };
@@ -133,6 +161,10 @@ export function parseBatchArgs(args: string[]): BatchCliOptions {
       options.json = true;
     } else if (arg === "--diff") {
       options.diff = true;
+    } else if (arg === "--advisories") {
+      throw new Error("sift batch --advisories is not supported in v0");
+    } else if (arg.startsWith("--advisories=")) {
+      throw new Error("--advisories values are not supported in v0; batch advisories are not supported");
     } else if (arg === "--keep") {
       options.keep = true;
     } else if (arg === "--registry") {
@@ -165,6 +197,42 @@ export function parseBatchArgs(args: string[]): BatchCliOptions {
     oldLockfile: options.positionals[0],
     newLockfile: options.positionals[1]
   };
+}
+
+async function buildAdvisorySidecar(
+  name: string,
+  oldVersion: string,
+  newVersion: string,
+  fetchAdvisoriesImpl: (name: string, version: string) => Promise<Advisory[]>,
+  now: () => Date
+): Promise<AdvisorySidecar> {
+  const [oldResult, newResult] = await Promise.allSettled([fetchAdvisoriesImpl(name, oldVersion), fetchAdvisoriesImpl(name, newVersion)]);
+  return {
+    enabled: true,
+    source: "OSV.dev",
+    fetchedAt: now().toISOString(),
+    oldVersion: settleAdvisoryVersion(oldVersion, oldResult),
+    newVersion: settleAdvisoryVersion(newVersion, newResult)
+  };
+}
+
+function settleAdvisoryVersion(version: string, result: PromiseSettledResult<Advisory[]>) {
+  if (result.status === "fulfilled") return { version, vulns: result.value };
+  return { version, vulns: [], unavailable: errorMessage(result.reason) };
+}
+
+function withAdvisorySidecar(report: Report, advisorySidecar?: AdvisorySidecar): Report | (Report & { advisorySidecar: AdvisorySidecar }) {
+  return advisorySidecar ? { ...report, advisorySidecar } : report;
+}
+
+function assertAdvisoryRegistry(options: Pick<CliOptions, "advisories" | "registry">): void {
+  if (options.advisories && options.registry !== DEFAULT_REGISTRY) {
+    throw new Error(`--advisories requires --registry ${DEFAULT_REGISTRY} to avoid sending custom registry package coordinates to OSV.dev`);
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function parseConcurrency(value: string): number {

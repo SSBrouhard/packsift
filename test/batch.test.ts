@@ -156,6 +156,11 @@ describe("batch formatting and CLI parsing", () => {
     expect(() => parseBatchArgs(["--concurrency", "abc", "old.json", "new.json"])).toThrow("--concurrency must be a positive integer");
   });
 
+  it("rejects advisory sidecars in batch mode for v0", () => {
+    expect(() => parseBatchArgs(["old.json", "new.json", "--advisories"])).toThrow("sift batch --advisories is not supported in v0");
+    expect(() => parseBatchArgs(["old.json", "new.json", "--advisories=summary"])).toThrow("--advisories values are not supported in v0");
+  });
+
   it("rejects batch diffs unless JSON can expose them", () => {
     expect(() => parseBatchArgs(["--diff", "old.json", "new.json"])).toThrow("sift batch --diff requires --json");
     expect(parseBatchArgs(["--json", "--diff", "old.json", "new.json"])).toMatchObject({ json: true, diff: true });

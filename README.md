@@ -19,6 +19,11 @@ review, hold, urgent, risk-score, and recommendation-style verdicts. Package
 names, file paths, registry metadata, and `--json` output still preserve source
 data exactly.
 
+The core tarball comparison is deterministic and offline after published npm
+artifacts are fetched. The `--advisories` sidecar is the explicit exception:
+opt-in, networked, non-deterministic at query time, attributed to OSV.dev,
+timestamped, and limited to structured advisory fields.
+
 ## Requirements
 
 Node.js 20 or newer.
@@ -30,6 +35,7 @@ Node.js 20 or newer.
 sift <name>@<old> <name>@<new>
 sift lodash@4.17.20 lodash@4.17.21
 sift @scope/pkg@1.2.3 @scope/pkg@1.2.4
+sift kysely@0.28.16 kysely@0.28.17 --advisories
 
 # Compare package-lock transitions.
 sift batch <old-package-lock.json> <new-package-lock.json>
@@ -41,6 +47,11 @@ Options:
 - `--json` emits structured JSON.
 - `--diff` includes full text line diffs for changed text files up to 512 KB.
   In batch mode, `--diff` requires `--json`.
+- `--advisories` adds an opt-in OSV.dev sidecar for single-package transitions.
+  It queries old and new npm versions, then renders only id, aliases, severity,
+  affected ranges, and reference URLs. It is only accepted when `--registry` is
+  exactly `https://registry.npmjs.org`; custom registries are treated as private
+  and rejected before any OSV.dev query. It is not supported in batch mode.
 - `--registry <url>` selects the npm registry, defaulting to
   `https://registry.npmjs.org`.
 - `--keep` preserves extracted tarballs and temp dirs for debugging.
@@ -70,6 +81,14 @@ summarize changed file counts plus signal and integrity evidence. Per-package
 errors do not stop the rest of the batch, but they set the process exit code to
 1. Use `sift batch --json` for full per-package reports.
 
+With `--advisories`, single-transition output adds an `Advisory sidecar` block
+after the files block. Empty OSV results render `none returned`. OSV failures
+are non-fatal: the tarball report still prints, and the affected version says
+`advisories unavailable: <reason>`. JSON includes `advisorySidecar` only when
+the flag is set. The sidecar records `enabled`, `source`, `fetchedAt`,
+`oldVersion`, and `newVersion`; each version records `version`, `vulns`, and
+optional `unavailable`.
+
 Integrity and shasum mismatches are reported as warnings instead of stopping the
 comparison.
 
@@ -93,6 +112,12 @@ Signals are deterministic tripwires:
 ## Scope
 
 `sift` uses published npm artifacts only, with lockfiles used only to discover
-package transitions for batch analysis. It does not clone GitHub repositories,
-call model APIs, ingest advisories, score risk, comment on PRs, or inspect
-consumer project source.
+package transitions for batch analysis. The deterministic core does not clone
+GitHub repositories, call model APIs, ingest advisories, score risk, comment on
+PRs, or inspect consumer project source.
+
+`--advisories` is a fenced sidecar exception, not part of the analyzer. It calls
+OSV.dev without authentication for the two requested npm versions only when the
+registry is exactly `https://registry.npmjs.org`, renders structured source
+fields alongside the tarball report, and never maps files to advisories or turns
+advisory data into a verdict.

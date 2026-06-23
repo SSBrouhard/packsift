@@ -124,6 +124,28 @@ export interface Report {
   sizeDelta: SizeDelta;
 }
 
+export interface Advisory {
+  id: string;
+  aliases: string[];
+  severity: string;
+  affectedRanges: string[];
+  references: string[];
+}
+
+export interface AdvisoryVersionResult {
+  version: string;
+  vulns: Advisory[];
+  unavailable?: string;
+}
+
+export interface AdvisorySidecar {
+  enabled: true;
+  source: "OSV.dev";
+  fetchedAt: string;
+  oldVersion: AdvisoryVersionResult;
+  newVersion: AdvisoryVersionResult;
+}
+
 export interface AnalyzeInput {
   packageName: string;
   oldVersion: string;

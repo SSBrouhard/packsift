@@ -1,6 +1,6 @@
-import { BatchReport, FileChange, Report, Signal, SkippedReason } from "./types.js";
+import { Advisory, AdvisorySidecar, AdvisoryVersionResult, BatchReport, FileChange, Report, Signal, SkippedReason } from "./types.js";
 
-export function formatHuman(report: Report, includeDiffs: boolean): string {
+export function formatHuman(report: Report, includeDiffs: boolean, advisorySidecar?: AdvisorySidecar): string {
   const lines: string[] = [];
   lines.push(`sift  ${report.packageName}@${report.oldVersion} -> ${report.newVersion}`);
   lines.push("");
@@ -32,6 +32,11 @@ export function formatHuman(report: Report, includeDiffs: boolean): string {
     lines.push(`  ${statusLetter(entry.status)}  ${entry.path.padEnd(28)} ${formatFileChange(entry)}`);
   }
 
+  if (advisorySidecar) {
+    lines.push("");
+    lines.push(...formatAdvisorySidecar(advisorySidecar));
+  }
+
   if (includeDiffs) {
     const diffs = report.files.entries.filter((entry) => entry.diff).map((entry) => entry.diff);
     if (diffs.length) {
@@ -42,6 +47,14 @@ export function formatHuman(report: Report, includeDiffs: boolean): string {
   }
 
   return `${lines.join("\n")}\n`;
+}
+
+export function formatAdvisorySidecar(sidecar: AdvisorySidecar): string[] {
+  return [
+    `-- Advisory sidecar: ${sidecar.source} fetched ${sidecar.fetchedAt} --`,
+    ...formatAdvisoryVersion("old", sidecar.oldVersion),
+    ...formatAdvisoryVersion("new", sidecar.newVersion)
+  ];
 }
 
 export function formatBatchHuman(report: BatchReport): string {
@@ -89,6 +102,36 @@ function formatBatchEvidence(report: Report): string {
   if (signals) parts.push(`signals: ${signals}`);
   if (report.integrityWarnings.length) parts.push(`integrity/shasum mismatches: ${report.integrityWarnings.length}`);
   return parts.join("; ") || "signals: no signals";
+}
+
+function formatAdvisoryVersion(label: "old" | "new", result: AdvisoryVersionResult): string[] {
+  const lines = [`  ${label} version ${result.version}`];
+  if (result.unavailable) {
+    lines.push(`    advisories unavailable: ${result.unavailable}`);
+    return lines;
+  }
+  if (result.vulns.length === 0) {
+    lines.push("    none returned");
+    return lines;
+  }
+  for (const advisory of result.vulns) {
+    lines.push(...formatAdvisory(advisory));
+  }
+  return lines;
+}
+
+function formatAdvisory(advisory: Advisory): string[] {
+  const lines = [`    ${advisory.id}`];
+  lines.push(`      aliases: ${advisory.aliases.length ? advisory.aliases.join(", ") : "(none reported)"}`);
+  lines.push(`      severity: ${advisory.severity}`);
+  lines.push(`      affected ranges: ${advisory.affectedRanges.length ? advisory.affectedRanges.join(", ") : "(none reported)"}`);
+  lines.push("      references:");
+  if (advisory.references.length === 0) {
+    lines.push("        - (none reported)");
+  } else {
+    for (const reference of advisory.references) lines.push(`        - ${reference}`);
+  }
+  return lines;
 }
 
 function formatSignal(signal: Signal): string[] {
