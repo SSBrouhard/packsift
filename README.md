@@ -61,12 +61,13 @@ Options:
 - `--detail` expands analyzed batch entries in human output to the same
   per-package report used by single-transition output.
 
-Batch mode accepts npm `package-lock.json` v2/v3, yarn `yarn.lock` v1/Berry,
-and `pnpm-lock.yaml` v5.4/v6/v9. Each lockfile argument may be a working-tree
-path, `<ref>:<path>` read through `git show`, or `-` for stdin. Only one side
-may be stdin. Mixed formats are supported because each parser lowers to the same
-name/version map; human and JSON output always label the detected old and new
-formats, such as `old: npm package-lock v3` and `new: pnpm-lock.yaml v9.0`.
+Batch mode accepts npm `package-lock.json`/`npm-shrinkwrap.json` v2/v3, yarn
+`yarn.lock` v1/Berry, and `pnpm-lock.yaml` v5.4/v6/v9. Each lockfile argument
+may be a working-tree path, `<ref>:<path>` read through `git show`, or `-` for
+stdin. Only one side may be stdin. Mixed formats are supported because each
+parser lowers to the same name/version map; human and JSON output always label
+the detected old and new formats, such as `old: npm package-lock v3` and
+`new: pnpm-lock.yaml v9.0`.
 
 Batch mode only considers registry-backed package entries. Linked, aliased,
 file, git, off-registry, and unresolved entries are ignored before transition
