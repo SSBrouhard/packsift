@@ -164,6 +164,14 @@ export interface AnalyzeOptions {
 
 export type VersionSetMap = Map<string, Set<string>>;
 
+export type LockfileFormat = "npm" | "yarn" | "pnpm";
+
+export interface ParsedLockfile {
+  map: VersionSetMap;
+  format: LockfileFormat;
+  formatLabel: string;
+}
+
 export interface Transition {
   name: string;
   oldVersion: string;
@@ -193,6 +201,10 @@ export interface BatchErrorEntry {
 }
 
 export interface BatchReport {
+  sources?: {
+    old: string;
+    new: string;
+  };
   analyzed: BatchEntry[];
   skipped: SkippedEntry[];
   errors: BatchErrorEntry[];

@@ -57,9 +57,18 @@ export function formatAdvisorySidecar(sidecar: AdvisorySidecar): string[] {
   ];
 }
 
-export function formatBatchHuman(report: BatchReport): string {
+export interface BatchHumanOptions {
+  detail?: boolean;
+  includeDiffs?: boolean;
+}
+
+export function formatBatchHuman(report: BatchReport, options: BatchHumanOptions = {}): string {
   const lines: string[] = [];
   lines.push("sift batch");
+  if (report.sources) {
+    lines.push(`old: ${report.sources.old}`);
+    lines.push(`new: ${report.sources.new}`);
+  }
   lines.push("");
   lines.push("-- Analyzed -----------------------------");
   if (report.analyzed.length === 0) {
@@ -70,6 +79,10 @@ export function formatBatchHuman(report: BatchReport): string {
       const changedFiles = summary.added + summary.removed + summary.changed;
       const evidence = formatBatchEvidence(entry.report);
       lines.push(`  ${entry.name}  ${entry.report.oldVersion} -> ${entry.report.newVersion}   ${changedFiles} changed files; ${evidence}`);
+      if (options.detail) {
+        lines.push("");
+        lines.push(indentBlock(formatHuman(entry.report, options.includeDiffs ?? false).trimEnd(), "    "));
+      }
     }
   }
 
@@ -94,6 +107,10 @@ export function formatBatchHuman(report: BatchReport): string {
   }
 
   return `${lines.join("\n")}\n`;
+}
+
+function indentBlock(value: string, prefix: string): string {
+  return value.split("\n").map((line) => `${prefix}${line}`).join("\n");
 }
 
 function formatBatchEvidence(report: Report): string {

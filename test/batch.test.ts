@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyzeBatch, classifyTransitions, formatBatchHuman } from "../src/index.js";
-import { applyBatchExitCode, batchHelpText, helpText, parseArgs, parseBatchArgs } from "../src/cli.js";
+import { applyBatchExitCode, batchHelpText, helpText, parseArgs, parseBatchArgs, resolveLockfileArgument, runBatch } from "../src/cli.js";
 import { FetchResult } from "../src/registry.js";
 import { ClassifiedTransitions, PackageManifest, Report } from "../src/types.js";
 
@@ -104,6 +104,7 @@ describe("batch orchestration", () => {
 describe("batch formatting and CLI parsing", () => {
   it("renders compact human output in analyzed, skipped, error order", () => {
     const output = formatBatchHuman({
+      sources: { old: "npm package-lock v3", new: "pnpm-lock.yaml v9.0" },
       analyzed: [
         { name: "alpha", report: { ...reportFor("alpha", "1.0.0", "1.0.1"), signals: [{ id: "new-bin", title: "New bin entries", details: { added: { alpha: "cli.js" } } }] } },
         {
@@ -123,6 +124,8 @@ describe("batch formatting and CLI parsing", () => {
     });
 
     expect(output).toContain("-- Analyzed");
+    expect(output).toContain("old: npm package-lock v3");
+    expect(output).toContain("new: pnpm-lock.yaml v9.0");
     expect(output).toContain("alpha  1.0.0 -> 1.0.1   1 changed files; signals: new-bin");
     expect(output).toContain("beta  2.0.0 -> 2.0.1   1 changed files; integrity/shasum mismatches: 2");
     expect(output).toContain("delta  3.0.0 -> 3.0.1   1 changed files; signals: no signals");
@@ -130,6 +133,22 @@ describe("batch formatting and CLI parsing", () => {
     expect(output).toContain("zeta  HTTP 500");
     expect(output.indexOf("-- Analyzed")).toBeLessThan(output.indexOf("-- Skipped"));
     expect(output.indexOf("-- Skipped")).toBeLessThan(output.indexOf("-- Errors"));
+  });
+
+  it("expands analyzed entries with --detail using the single-package formatter", () => {
+    const output = formatBatchHuman(
+      {
+        sources: { old: "npm package-lock v3", new: "npm package-lock v3" },
+        analyzed: [{ name: "alpha", report: reportFor("alpha", "1.0.0", "1.0.1") }],
+        skipped: [],
+        errors: []
+      },
+      { detail: true }
+    );
+
+    expect(output).toContain("alpha  1.0.0 -> 1.0.1   1 changed files; signals: no signals");
+    expect(output).toContain("    sift  alpha@1.0.0 -> 1.0.1");
+    expect(output).toContain("    -- Files");
   });
 
   it("parses batch args without changing single-transition parsing", () => {
@@ -146,18 +165,24 @@ describe("batch formatting and CLI parsing", () => {
       registry: "https://registry.test",
       concurrency: 8
     });
+    expect(parseBatchArgs(["--detail", "--diff", "old.json", "new.json"])).toMatchObject({
+      detail: true,
+      diff: true
+    });
     expect(parseArgs(["left@1.0.0", "left@1.0.1"]).positionals).toEqual(["left@1.0.0", "left@1.0.1"]);
   });
 
   it("documents top-level and batch help", () => {
     expect(helpText()).toContain("sift <name>@<old> <name>@<new> [options]");
-    expect(helpText()).toContain("sift batch <old-package-lock.json> <new-package-lock.json> [options]");
+    expect(helpText()).toContain("sift batch <old-lockfile> <new-lockfile> [options]");
+    expect(batchHelpText()).toContain("--detail");
     expect(batchHelpText()).toContain("Unsupported in batch mode:");
     expect(batchHelpText()).toContain("--advisories");
   });
 
   it("rejects bad batch arity and concurrency", () => {
-    expect(() => parseBatchArgs(["old.json"])).toThrow("Expected exactly two lockfile paths");
+    expect(() => parseBatchArgs(["old.json"])).toThrow("Expected exactly two lockfile inputs");
+    expect(() => parseBatchArgs(["-", "-"])).toThrow("stdin for only one lockfile");
     expect(() => parseBatchArgs(["--concurrency", "0", "old.json", "new.json"])).toThrow("--concurrency must be a positive integer");
     expect(() => parseBatchArgs(["--concurrency", "1.5", "old.json", "new.json"])).toThrow("--concurrency must be a positive integer");
     expect(() => parseBatchArgs(["--concurrency", "abc", "old.json", "new.json"])).toThrow("--concurrency must be a positive integer");
@@ -169,8 +194,52 @@ describe("batch formatting and CLI parsing", () => {
   });
 
   it("rejects batch diffs unless JSON can expose them", () => {
-    expect(() => parseBatchArgs(["--diff", "old.json", "new.json"])).toThrow("sift batch --diff requires --json");
+    expect(() => parseBatchArgs(["--diff", "old.json", "new.json"])).toThrow("sift batch --diff requires --json unless --detail is set");
     expect(parseBatchArgs(["--json", "--diff", "old.json", "new.json"])).toMatchObject({ json: true, diff: true });
+  });
+
+  it("resolves stdin and git-ref lockfile inputs", async () => {
+    await expect(resolveLockfileArgument("-", { readStdin: async () => "stdin-content" })).resolves.toEqual({ content: "stdin-content", label: "stdin" });
+    await expect(
+      resolveLockfileArgument("HEAD:locks/pnpm-lock.yaml", {
+        runGitShow: async (ref, filePath) => {
+          expect(ref).toBe("HEAD");
+          expect(filePath).toBe("locks/pnpm-lock.yaml");
+          return "git-content";
+        }
+      })
+    ).resolves.toEqual({ content: "git-content", label: "pnpm-lock.yaml" });
+    await expect(resolveLockfileArgument("HEAD:missing.json", { runGitShow: async () => { throw new Error("fatal: path not found"); } })).rejects.toThrow(
+      "Could not read lockfile HEAD:missing.json: fatal: path not found"
+    );
+  });
+
+  it("runs mixed-format batches and writes format labels to JSON", async () => {
+    const written: string[] = [];
+    await runBatch(
+      parseBatchArgs(["--json", "-", "HEAD:pnpm-lock.yaml"]),
+      {
+        readStdin: async () => JSON.stringify({
+          lockfileVersion: 3,
+          packages: {
+            "node_modules/alpha": { version: "1.0.0", resolved: "https://registry.npmjs.org/alpha/-/alpha-1.0.0.tgz" }
+          }
+        }),
+        runGitShow: async () => `lockfileVersion: '9.0'
+packages:
+  alpha@1.0.0:
+    resolution:
+      integrity: sha512-alpha
+`,
+        write: (text) => written.push(text)
+      }
+    );
+
+    const parsed = JSON.parse(written.join("")) as { sources: { old: string; new: string }; analyzed: unknown[]; skipped: unknown[]; errors: unknown[] };
+    expect(parsed.sources).toEqual({ old: "npm package-lock v3", new: "pnpm-lock.yaml v9.0" });
+    expect(parsed.analyzed).toEqual([]);
+    expect(parsed.skipped).toEqual([]);
+    expect(parsed.errors).toEqual([]);
   });
 
   it("sets a failing exit code for partial batch failures", () => {

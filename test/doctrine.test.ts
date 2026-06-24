@@ -216,14 +216,17 @@ describe("evidence-never-verdict doctrine", () => {
   });
 
   it("keeps sift-authored human output free of verdict vocabulary", () => {
+    const batchOutput = formatBatchHuman(batchCoverageReport);
     const outputs = [
       doctrineSubject(noSignalsReport, false),
       doctrineSubject(signalCoverageReport, false),
       doctrineSubject(signalCoverageReport, true),
-      formatBatchHuman(batchCoverageReport),
+      batchOutput,
       formatAdvisorySidecar(advisoryCoverageSidecar).join("\n")
     ];
 
+    expect(batchOutput).toContain("old: npm package-lock v3");
+    expect(batchOutput).toContain("new: pnpm-lock.yaml v9.0");
     expect(outputs.flatMap(findBannedVocabulary)).toEqual([]);
   });
 });
@@ -410,6 +413,10 @@ const signalCoverageReport: Report = {
 };
 
 const batchCoverageReport: BatchReport = {
+  sources: {
+    old: "npm package-lock v3",
+    new: "pnpm-lock.yaml v9.0"
+  },
   analyzed: [
     {
       name: "alpha",

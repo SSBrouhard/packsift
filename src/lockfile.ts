@@ -1,5 +1,7 @@
 import { readFile } from "node:fs/promises";
-import { VersionSetMap } from "./types.js";
+import { parsePnpmLockfileData } from "./lockfile-pnpm.js";
+import { parseYarnLockfileData } from "./lockfile-yarn.js";
+import { ParsedLockfile, VersionSetMap } from "./types.js";
 
 interface NpmLockfile {
   lockfileVersion?: number;
@@ -16,6 +18,10 @@ interface LockfilePackageEntry {
 const DEFAULT_REGISTRY = "https://registry.npmjs.org";
 
 export async function parseLockfile(filePath: string, registry = DEFAULT_REGISTRY): Promise<VersionSetMap> {
+  return (await parseLockfileAuto(filePath, registry)).map;
+}
+
+export async function parseLockfileAuto(filePath: string, registry = DEFAULT_REGISTRY): Promise<ParsedLockfile> {
   let raw: string;
   try {
     raw = await readFile(filePath, "utf8");
@@ -23,14 +29,49 @@ export async function parseLockfile(filePath: string, registry = DEFAULT_REGISTR
     throw new Error(`Could not read lockfile ${filePath}: ${messageFor(error)}`);
   }
 
+  try {
+    return parseLockfileContent(raw, filePath, registry);
+  } catch (error) {
+    throw new Error(`Could not parse lockfile ${filePath}: ${messageFor(error)}`);
+  }
+}
+
+export function parseLockfileContent(raw: string, label = "lockfile", registry = DEFAULT_REGISTRY): ParsedLockfile {
+  const format = detectLockfileFormat(label, raw);
+  if (format === "npm") {
+    const lockfile = parseJsonLockfile(raw, label);
+    return {
+      map: parseLockfileData(lockfile, label, registry),
+      format: "npm",
+      formatLabel: `npm package-lock v${lockfile.lockfileVersion}`
+    };
+  }
+  if (format === "yarn") return parseYarnLockfileData(raw, label, registry);
+  if (format === "pnpm") return parsePnpmLockfileData(raw, label, registry);
+  throw new Error(`${label} is unsupported: expected npm package-lock, yarn.lock, or pnpm-lock.yaml`);
+}
+
+function parseJsonLockfile(raw: string, label: string): NpmLockfile {
   let parsed: NpmLockfile;
   try {
     parsed = JSON.parse(raw) as NpmLockfile;
   } catch (error) {
-    throw new Error(`Could not parse lockfile ${filePath}: ${messageFor(error)}`);
+    throw new Error(`${label} is not valid JSON: ${messageFor(error)}`);
   }
+  return parsed;
+}
 
-  return parseLockfileData(parsed, filePath, registry);
+function detectLockfileFormat(label: string, raw: string): "npm" | "yarn" | "pnpm" {
+  const basename = label.split(/[\\/]/).pop() ?? label;
+  if (basename === "package-lock.json" || basename === "npm-shrinkwrap.json") return "npm";
+  if (basename === "yarn.lock") return "yarn";
+  if (basename === "pnpm-lock.yaml") return "pnpm";
+
+  const trimmed = raw.trimStart();
+  if (trimmed.startsWith("{") && trimmed.includes("\"lockfileVersion\"")) return "npm";
+  if (raw.split(/\r?\n/).some((line) => line.trim() === "# yarn lockfile v1") || raw.includes("\n__metadata:") || trimmed.startsWith("__metadata:")) return "yarn";
+  if (/^lockfileVersion:\s*['"]?[\d.]+/m.test(raw) && /^packages:/m.test(raw)) return "pnpm";
+  throw new Error(`${label} is unsupported: expected npm package-lock, yarn.lock, or pnpm-lock.yaml`);
 }
 
 export function parseLockfileData(lockfile: NpmLockfile, label = "lockfile", registry = DEFAULT_REGISTRY): VersionSetMap {
@@ -63,7 +104,7 @@ export function packageNameFromLockPath(lockPath: string): string | undefined {
   return lockPath.slice(index + marker.length);
 }
 
-function addVersion(versions: VersionSetMap, name: string, version: string): void {
+export function addVersion(versions: VersionSetMap, name: string, version: string): void {
   const set = versions.get(name) ?? new Set<string>();
   set.add(version);
   versions.set(name, set);
@@ -77,7 +118,7 @@ function isRegistryPackageEntry(entry: LockfilePackageEntry, pathName: string, v
   return isRegistryTarballUrl(entry.resolved, pathName, version, registryUrl, registryBaseSegments);
 }
 
-function isRegistryTarballUrl(resolved: string, packageName: string, version: string, registryUrl: URL, registryBaseSegments: string[]): boolean {
+export function isRegistryTarballUrl(resolved: string, packageName: string, version: string, registryUrl: URL, registryBaseSegments: string[]): boolean {
   let url: URL;
   try {
     url = new URL(resolved);
@@ -102,7 +143,7 @@ function isRegistryTarballUrl(resolved: string, packageName: string, version: st
   return segments[markerIndex + 1] === `${packageBase}-${version}.tgz`;
 }
 
-function parseRegistryUrl(registry: string): URL {
+export function parseRegistryUrl(registry: string): URL {
   let url: URL;
   try {
     url = new URL(registry);
@@ -113,7 +154,7 @@ function parseRegistryUrl(registry: string): URL {
   return url;
 }
 
-function decodedPathSegments(pathname: string): string[] | undefined {
+export function decodedPathSegments(pathname: string): string[] | undefined {
   try {
     return decodeURIComponent(pathname).split("/").filter(Boolean);
   } catch {
@@ -126,7 +167,7 @@ function hasSegmentPrefix(segments: string[], prefix: string[]): boolean {
   return prefix.every((segment, index) => segments[index] === segment);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
