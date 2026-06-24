@@ -141,7 +141,7 @@ export interface AdvisoryVersionResult {
 
 export interface AdvisorySidecar {
   enabled: true;
-  source: "OSV.dev";
+  source: string;
   fetchedAt: string;
   oldVersion: AdvisoryVersionResult;
   newVersion: AdvisoryVersionResult;

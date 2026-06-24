@@ -125,7 +125,8 @@ describe("batch orchestration", () => {
             inFlight -= 1;
             return [{ id: `ADV-${name}-${version}`, aliases: [], severity: "LOW", affectedRanges: [], references: [] }];
           },
-          now: () => new Date("2026-06-23T12:00:00.000Z")
+          now: () => new Date("2026-06-23T12:00:00.000Z"),
+          source: "OSV.dev"
         }
       },
       {
@@ -159,7 +160,8 @@ describe("batch orchestration", () => {
             if (name === "alpha" && version === "1.0.0") throw new Error("OSV.dev request failed: HTTP 503");
             return [];
           },
-          now: () => new Date("2026-06-23T12:00:00.000Z")
+          now: () => new Date("2026-06-23T12:00:00.000Z"),
+          source: "OSV.dev"
         }
       },
       {
@@ -354,6 +356,13 @@ packages:
   it("applies the custom-registry advisory gate in batch mode", async () => {
     await expect(
       runBatch(parseBatchArgs(["--advisories", "--registry", "https://npm.mycorp.internal", "-", "new.json"]), {
+        readStdin: async () => "{}",
+        write: () => undefined
+      })
+    ).rejects.toThrow("--advisories with a custom registry requires --advisory-endpoint <url> or --advisories-allow-public");
+
+    await expect(
+      runBatch(parseBatchArgs(["--advisories", "--registry", "https://npm.mycorp.internal", "--advisory-endpoint", "https://api.osv.dev/v1/query", "-", "new.json"]), {
         readStdin: async () => "{}",
         write: () => undefined
       })

@@ -19,6 +19,7 @@ export interface AnalyzeBatchOptions extends FetchOptions {
   advisories?: {
     fetchAdvisories: (name: string, version: string) => Promise<Advisory[]>;
     now: () => Date;
+    source: string;
   };
 }
 
@@ -113,7 +114,8 @@ export async function analyzeBatch(
         entry.report.oldVersion,
         entry.report.newVersion,
         options.advisories!.fetchAdvisories,
-        options.advisories!.now
+        options.advisories!.now,
+        options.advisories!.source
       );
     });
   }

@@ -1,7 +1,7 @@
 import { type Advisory } from "./types.js";
 import { type AdvisorySidecar } from "./types.js";
 
-const DEFAULT_ENDPOINT = "https://api.osv.dev/v1/query";
+export const DEFAULT_ADVISORY_ENDPOINT = "https://api.osv.dev/v1/query";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_PAGES = 10;
 const NO_SEVERITY = "(none reported)";
@@ -60,7 +60,7 @@ interface OsvSeverity {
 
 export async function fetchAdvisories(name: string, version: string, options: FetchAdvisoriesOptions = {}): Promise<Advisory[]> {
   const fetchImpl = options.fetch ?? globalThis.fetch;
-  const endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
+  const endpoint = options.endpoint ?? DEFAULT_ADVISORY_ENDPOINT;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxPages = options.maxPages ?? DEFAULT_MAX_PAGES;
   if (!fetchImpl) throw new Error("fetch is not available");
@@ -111,16 +111,37 @@ export async function buildAdvisorySidecar(
   oldVersion: string,
   newVersion: string,
   fetchAdvisoriesImpl: (name: string, version: string) => Promise<Advisory[]>,
-  now: () => Date
+  now: () => Date,
+  source = advisorySource()
 ): Promise<AdvisorySidecar> {
   const [oldResult, newResult] = await Promise.allSettled([fetchAdvisoriesImpl(name, oldVersion), fetchAdvisoriesImpl(name, newVersion)]);
   return {
     enabled: true,
-    source: "OSV.dev",
+    source,
     fetchedAt: now().toISOString(),
     oldVersion: settleAdvisoryVersion(oldVersion, oldResult),
     newVersion: settleAdvisoryVersion(newVersion, newResult)
   };
+}
+
+export function advisorySource(endpoint = DEFAULT_ADVISORY_ENDPOINT): string {
+  return isDefaultAdvisoryEndpoint(endpoint) ? "OSV.dev" : `OSV-compatible endpoint: ${endpoint}`;
+}
+
+export function isDefaultAdvisoryEndpoint(endpoint: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(endpoint);
+  } catch {
+    return false;
+  }
+  const defaultEndpoint = new URL(DEFAULT_ADVISORY_ENDPOINT);
+  return parsed.protocol === defaultEndpoint.protocol
+    && parsed.hostname === defaultEndpoint.hostname
+    && normalizedPort(parsed) === normalizedPort(defaultEndpoint)
+    && stripTrailingSlashes(parsed.pathname) === defaultEndpoint.pathname
+    && parsed.search === ""
+    && parsed.hash === "";
 }
 
 class InvalidJsonError extends Error {}
@@ -182,6 +203,14 @@ function mapVulnerability(vuln: OsvVulnerability, packageName: string, includeSu
 function settleAdvisoryVersion(version: string, result: PromiseSettledResult<Advisory[]>) {
   if (result.status === "fulfilled") return { version, vulns: result.value };
   return { version, vulns: [], unavailable: errorMessage(result.reason) };
+}
+
+function normalizedPort(url: URL): string {
+  return url.port || (url.protocol === "https:" ? "443" : url.protocol === "http:" ? "80" : "");
+}
+
+function stripTrailingSlashes(value: string): string {
+  return value.replace(/\/+$/, "");
 }
 
 function mapSeverity(vuln: OsvVulnerability, packageName: string): string {

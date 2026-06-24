@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyze } from "./analyze.js";
-import { buildAdvisorySidecar, fetchAdvisories } from "./advisories.js";
+import { advisorySource, buildAdvisorySidecar, fetchAdvisories, isDefaultAdvisoryEndpoint } from "./advisories.js";
 import { analyzeBatch, classifyTransitions } from "./batch.js";
 import { formatBatchHuman, formatHuman } from "./format.js";
 import { parseLockfileContent } from "./lockfile.js";
@@ -96,7 +96,8 @@ export async function runSingleTransition(options: CliOptions, deps: SingleTrans
         oldSpec.version,
         newSpec.version,
         advisoryFetcher(options, deps.fetchAdvisories ?? fetchAdvisories),
-        deps.now ?? (() => new Date())
+        deps.now ?? (() => new Date()),
+        advisorySource(options.advisoryEndpoint)
       )
       : undefined;
 
@@ -139,7 +140,8 @@ export async function runBatch(options: BatchCliOptions, deps: BatchDeps = {}): 
       ? undefined
       : {
         fetchAdvisories: advisoryFetcher(options, deps.fetchAdvisories ?? fetchAdvisories),
-        now: deps.now ?? (() => new Date())
+        now: deps.now ?? (() => new Date()),
+        source: advisorySource(options.advisoryEndpoint)
       }
   }, {
     fetchArtifacts: deps.fetchArtifacts,
@@ -357,7 +359,12 @@ function withAdvisorySidecar(report: Report, advisorySidecar?: AdvisorySidecar):
 }
 
 function assertAdvisoryRegistry(options: Pick<CliOptions, "advisories" | "registry" | "advisoryEndpoint" | "advisoriesAllowPublic">): void {
-  if (options.advisories !== "off" && options.registry !== DEFAULT_REGISTRY && !options.advisoryEndpoint && !options.advisoriesAllowPublic) {
+  if (
+    options.advisories !== "off"
+    && options.registry !== DEFAULT_REGISTRY
+    && !options.advisoriesAllowPublic
+    && (!options.advisoryEndpoint || isDefaultAdvisoryEndpoint(options.advisoryEndpoint))
+  ) {
     throw new Error(
       `--advisories with a custom registry requires --advisory-endpoint <url> or --advisories-allow-public to avoid sending custom registry package coordinates to OSV.dev`
     );

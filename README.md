@@ -21,9 +21,10 @@ data exactly.
 
 The core tarball comparison is deterministic and offline after published npm
 artifacts are fetched. The `--advisories` sidecar is the explicit exception:
-opt-in, networked, non-deterministic at query time, attributed to OSV.dev,
-timestamped, and structured by default. `--advisories=summary` additionally
-passes through OSV summary text as third-party source text.
+opt-in, networked, non-deterministic at query time, attributed to OSV.dev or
+the configured OSV-compatible endpoint, timestamped, and structured by default.
+`--advisories=summary` additionally passes through OSV summary text as
+third-party source text.
 
 ## Requirements
 
@@ -60,11 +61,13 @@ Options:
   human output and JSON.
 - `--advisory-endpoint <url>` sends advisory queries to an OSV-compatible
   endpoint, such as a private mirror. This is the preferred path for custom
-  registries because package coordinates do not go to public OSV.dev.
+  registries because package coordinates do not go to public OSV.dev. Pointing
+  this flag at the public OSV.dev endpoint with a custom registry still requires
+  `--advisories-allow-public`.
 - `--advisories-allow-public` explicitly permits public OSV.dev advisory
   lookups when `--registry` is not `https://registry.npmjs.org`. Without this
-  flag or `--advisory-endpoint`, custom registries are treated as private and
-  rejected before any public OSV.dev query.
+  flag or a non-public `--advisory-endpoint`, custom registries are treated as
+  private and rejected before any public OSV.dev query.
 - `--registry <url>` selects the npm registry, defaulting to
   `https://registry.npmjs.org`.
 - `--keep` preserves extracted tarballs and temp dirs for debugging.
@@ -146,5 +149,6 @@ risk, comment on PRs, or inspect consumer project source.
 OSV.dev without authentication for requested npm versions only when the registry
 is exactly `https://registry.npmjs.org`, unless the user supplies a private
 OSV-compatible endpoint or explicitly acknowledges public OSV.dev use with a
-custom registry. It renders source fields alongside the tarball report, never
-maps files to advisories, and never turns advisory data into a verdict.
+custom registry. It labels each sidecar with OSV.dev or the configured
+OSV-compatible endpoint, never maps files to advisories, and never turns
+advisory data into a verdict.
