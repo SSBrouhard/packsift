@@ -7,6 +7,14 @@ interface YarnClassicEntry {
   resolved?: string;
 }
 
+interface RegistryCandidate {
+  url: URL;
+  baseSegments: string[];
+}
+
+const DEFAULT_NPM_REGISTRY_HOST = "registry.npmjs.org";
+const YARN_CLASSIC_REGISTRY_MIRROR = "https://registry.yarnpkg.com";
+
 export function parseYarnLockfileData(raw: string, label: string, registry: string): ParsedLockfile {
   if (isYarnClassic(raw)) {
     return {
@@ -28,9 +36,7 @@ function isYarnClassic(raw: string): boolean {
 }
 
 function parseYarnClassic(raw: string, label: string, registry: string): VersionSetMap {
-  const registryUrl = parseRegistryUrl(registry);
-  const registryBaseSegments = decodedPathSegments(registryUrl.pathname);
-  if (!registryBaseSegments) throw new Error(`Invalid registry URL: ${registry}`);
+  const registryCandidates = yarnClassicRegistryCandidates(registry);
 
   const entries = new Map<string, YarnClassicEntry>();
   let currentKeys: string[] = [];
@@ -56,11 +62,31 @@ function parseYarnClassic(raw: string, label: string, registry: string): Version
   for (const [descriptor, entry] of entries) {
     const name = packageNameFromYarnDescriptor(descriptor);
     if (!name || descriptor.includes("npm:") || typeof entry.version !== "string" || typeof entry.resolved !== "string") continue;
-    if (!isRegistryTarballUrl(stripYarnResolvedHash(entry.resolved), name, entry.version, registryUrl, registryBaseSegments)) continue;
+    if (!isYarnClassicRegistryTarballUrl(stripYarnResolvedHash(entry.resolved), name, entry.version, registryCandidates)) continue;
     addVersion(versions, name, entry.version);
   }
   if (versions.size === 0 && entries.size === 0) throw new Error(`${label} is unsupported: could not parse yarn.lock v1 entries`);
   return versions;
+}
+
+function yarnClassicRegistryCandidates(registry: string): RegistryCandidate[] {
+  const registryUrl = parseRegistryUrl(registry);
+  const registryBaseSegments = decodedPathSegments(registryUrl.pathname);
+  if (!registryBaseSegments) throw new Error(`Invalid registry URL: ${registry}`);
+
+  const candidates: RegistryCandidate[] = [{ url: registryUrl, baseSegments: registryBaseSegments }];
+  if (isDefaultNpmRegistry(registryUrl, registryBaseSegments)) {
+    candidates.push({ url: new URL(YARN_CLASSIC_REGISTRY_MIRROR), baseSegments: [] });
+  }
+  return candidates;
+}
+
+function isDefaultNpmRegistry(registryUrl: URL, registryBaseSegments: string[]): boolean {
+  return registryUrl.protocol === "https:" && registryUrl.host === DEFAULT_NPM_REGISTRY_HOST && registryBaseSegments.length === 0;
+}
+
+function isYarnClassicRegistryTarballUrl(resolved: string, name: string, version: string, candidates: RegistryCandidate[]): boolean {
+  return candidates.some((candidate) => isRegistryTarballUrl(resolved, name, version, candidate.url, candidate.baseSegments));
 }
 
 function parseYarnBerry(raw: string, label: string): { map: VersionSetMap; formatLabel: string } {

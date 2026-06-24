@@ -51,6 +51,32 @@ off-host@^1.0.0:
     expect([...parsed.map.keys()]).toEqual(["alpha"]);
   });
 
+  it("accepts the yarn v1 registry mirror for the default npm registry", () => {
+    const parsed = parseLockfileContent(`# yarn lockfile v1
+
+alpha@^1.0.0:
+  version "1.0.0"
+  resolved "https://registry.yarnpkg.com/alpha/-/alpha-1.0.0.tgz#abc"
+
+"@scope/pkg@^2.0.0":
+  version "2.0.0"
+  resolved "https://registry.yarnpkg.com/@scope%2fpkg/-/pkg-2.0.0.tgz"
+`, "yarn.lock");
+
+    expect([...parsed.map.keys()].sort()).toEqual(["@scope/pkg", "alpha"]);
+  });
+
+  it("does not accept the yarn v1 registry mirror for custom registries", () => {
+    const parsed = parseLockfileContent(`# yarn lockfile v1
+
+alpha@^1.0.0:
+  version "1.0.0"
+  resolved "https://registry.yarnpkg.com/alpha/-/alpha-1.0.0.tgz"
+`, "yarn.lock", "https://registry.example.test");
+
+    expect([...parsed.map.keys()]).toEqual([]);
+  });
+
   it("parses yarn Berry registry resolutions and filters non-registry references", () => {
     const parsed = parseLockfileContent(`__metadata:
   version: 8
