@@ -5,8 +5,8 @@ Deterministic npm tarball diff CLI with supply-chain tripwires.
 `sift` compares published npm package versions by downloading their tarballs,
 hashing the unpacked files, and reporting material differences plus
 deterministic supply-chain-relevant signals. It can compare one package
-transition directly, or compare two npm lockfiles and run the same tarball
-analysis for changed registry-backed dependencies.
+transition directly, or compare two npm, yarn, or pnpm lockfiles and run the
+same tarball analysis for changed registry-backed dependencies.
 
 ## Doctrine: Evidence, Never Verdict
 
@@ -37,16 +37,18 @@ sift lodash@4.17.20 lodash@4.17.21
 sift @scope/pkg@1.2.3 @scope/pkg@1.2.4
 sift kysely@0.28.16 kysely@0.28.17 --advisories
 
-# Compare package-lock transitions.
-sift batch <old-package-lock.json> <new-package-lock.json>
+# Compare lockfile transitions.
+sift batch <old-lockfile> <new-lockfile>
 sift batch package-lock.before.json package-lock.json
+sift batch HEAD~1:pnpm-lock.yaml HEAD:pnpm-lock.yaml
+git show HEAD~1:yarn.lock | sift batch - yarn.lock
 ```
 
 Options:
 
 - `--json` emits structured JSON.
 - `--diff` includes full text line diffs for changed text files up to 512 KB.
-  In batch mode, `--diff` requires `--json`.
+  In batch mode, `--diff` requires `--json` unless `--detail` is set.
 - `--advisories` adds an opt-in OSV.dev sidecar for single-package transitions.
   It queries old and new npm versions, then renders only id, aliases, severity,
   affected ranges, and reference URLs. It is only accepted when `--registry` is
@@ -56,13 +58,22 @@ Options:
   `https://registry.npmjs.org`.
 - `--keep` preserves extracted tarballs and temp dirs for debugging.
 - `--concurrency <n>` sets batch fetch/analyze parallelism, defaulting to 4.
+- `--detail` expands analyzed batch entries in human output to the same
+  per-package report used by single-transition output.
 
-Batch mode accepts npm `package-lock.json` v2/v3 files with a `packages` map. It
-only considers entries whose resolved tarball URL matches `--registry`; linked,
-aliased, file, git, off-registry, and unresolved entries are ignored before
-transition classification. Packages are analyzed when both lockfiles contain
-exactly one version and that version changed. Added-only, removed-only, and
-multiple-version packages are listed as skipped.
+Batch mode accepts npm `package-lock.json`/`npm-shrinkwrap.json` v2/v3, yarn
+`yarn.lock` v1/Berry, and `pnpm-lock.yaml` v5.4/v6/v9. Each lockfile argument
+may be a working-tree path, `<ref>:<path>` read through `git show`, or `-` for
+stdin. Only one side may be stdin. Mixed formats are supported because each
+parser lowers to the same name/version map; human and JSON output always label
+the detected old and new formats, such as `old: npm package-lock v3` and
+`new: pnpm-lock.yaml v9.0`.
+
+Batch mode only considers registry-backed package entries. Linked, aliased,
+file, git, off-registry, and unresolved entries are ignored before transition
+classification. Packages are analyzed when both lockfiles contain exactly one
+version and that version changed. Added-only, removed-only, and multiple-version
+packages are listed as skipped.
 
 The npm package is `@ssbrouhard/sift`; the CLI command is `sift`.
 
@@ -76,10 +87,12 @@ omits unchanged files from the report. Changed text files show line counts by
 default; `--diff` adds unified diffs. Binary, non-text, or large changed files
 show size-only changes.
 
-Batch human output has analyzed, skipped, and error sections. Analyzed entries
-summarize changed file counts plus signal and integrity evidence. Per-package
-errors do not stop the rest of the batch, but they set the process exit code to
-1. Use `sift batch --json` for full per-package reports.
+Batch human output starts with the detected old/new lockfile formats, then has
+analyzed, skipped, and error sections. Analyzed entries summarize changed file
+counts plus signal and integrity evidence. Per-package errors do not stop the
+rest of the batch, but they set the process exit code to 1. Use
+`sift batch --json` for structured per-package reports, or `sift batch --detail`
+for expanded human reports.
 
 With `--advisories`, single-transition output adds an `Advisory sidecar` block
 after the files block. Empty OSV results render `none returned`. OSV failures

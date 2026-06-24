@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { packageNameFromLockPath, parseLockfile, parseLockfileData } from "../src/index.js";
+import { packageNameFromLockPath, parseLockfile, parseLockfileContent, parseLockfileData } from "../src/index.js";
 
 describe("lockfile parsing", () => {
   it("maps package paths to name/version sets", () => {
@@ -92,5 +92,25 @@ describe("lockfile parsing", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it("detects npm lockfiles from content and returns a format label", () => {
+    const parsed = parseLockfileContent(
+      JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          "node_modules/alpha": { version: "1.0.0", resolved: "https://registry.npmjs.org/alpha/-/alpha-1.0.0.tgz" }
+        }
+      }),
+      "stdin"
+    );
+
+    expect(parsed.format).toBe("npm");
+    expect(parsed.formatLabel).toBe("npm package-lock v3");
+    expect([...parsed.map.keys()]).toEqual(["alpha"]);
+  });
+
+  it("rejects unknown lockfile content loudly", () => {
+    expect(() => parseLockfileContent("not a lockfile", "mystery.lock")).toThrow("mystery.lock is unsupported: expected npm package-lock, yarn.lock, or pnpm-lock.yaml");
   });
 });

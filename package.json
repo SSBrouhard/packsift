@@ -36,7 +36,8 @@
   },
   "dependencies": {
     "diff": "^9.0.0",
-    "tar": "^7.4.3"
+    "tar": "^7.4.3",
+    "yaml": "2.9.0"
   },
   "devDependencies": {
     "@types/node": "20.19.43",

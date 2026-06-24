@@ -1,11 +1,14 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyze } from "./analyze.js";
 import { fetchAdvisories } from "./advisories.js";
 import { analyzeBatch, classifyTransitions } from "./batch.js";
 import { formatBatchHuman, formatHuman } from "./format.js";
-import { parseLockfile } from "./lockfile.js";
+import { parseLockfileContent } from "./lockfile.js";
 import { fetchArtifacts } from "./registry.js";
 import { assertSamePackage, parsePackageSpec } from "./spec.js";
 import { type Advisory, type AdvisorySidecar, type BatchReport, type Report } from "./types.js";
@@ -23,6 +26,7 @@ export interface CliOptions {
 
 export interface BatchCliOptions extends CliOptions {
   concurrency: number;
+  detail: boolean;
   oldLockfile: string;
   newLockfile: string;
 }
@@ -97,23 +101,68 @@ export async function runSingleTransition(options: CliOptions, deps: SingleTrans
   }
 }
 
-async function runBatch(options: BatchCliOptions): Promise<void> {
-  const oldVersions = await parseLockfile(options.oldLockfile, options.registry);
-  const newVersions = await parseLockfile(options.newLockfile, options.registry);
-  const classified = classifyTransitions(oldVersions, newVersions);
-  const report = await analyzeBatch(classified, {
+interface BatchDeps {
+  readStdin?: () => Promise<string>;
+  runGitShow?: (ref: string, filePath: string) => Promise<string>;
+  write?: (text: string) => void;
+}
+
+export async function runBatch(options: BatchCliOptions, deps: BatchDeps = {}): Promise<void> {
+  const stdinCount = [options.oldLockfile, options.newLockfile].filter((arg) => arg === "-").length;
+  if (stdinCount > 1) throw new Error("sift batch accepts stdin for only one lockfile argument");
+
+  const oldSource = await resolveLockfileArgument(options.oldLockfile, deps);
+  const newSource = await resolveLockfileArgument(options.newLockfile, deps);
+  const oldParsed = parseLockfileContent(oldSource.content, oldSource.label, options.registry);
+  const newParsed = parseLockfileContent(newSource.content, newSource.label, options.registry);
+  const classified = classifyTransitions(oldParsed.map, newParsed.map);
+  const batch = await analyzeBatch(classified, {
     registry: options.registry,
     keep: options.keep,
     includeDiffs: options.diff,
     concurrency: options.concurrency
   });
+  const report: BatchReport = {
+    sources: {
+      old: oldParsed.formatLabel,
+      new: newParsed.formatLabel
+    },
+    ...batch
+  };
 
+  const write = deps.write ?? ((text: string) => process.stdout.write(text));
   if (options.json) {
-    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    write(`${JSON.stringify(report, null, 2)}\n`);
   } else {
-    process.stdout.write(formatBatchHuman(report));
+    write(formatBatchHuman(report, { detail: options.detail, includeDiffs: options.diff }));
   }
   applyBatchExitCode(report);
+}
+
+export interface ResolvedLockfileInput {
+  content: string;
+  label: string;
+}
+
+export async function resolveLockfileArgument(arg: string, deps: Pick<BatchDeps, "readStdin" | "runGitShow"> = {}): Promise<ResolvedLockfileInput> {
+  if (arg === "-") {
+    const readStdin = deps.readStdin ?? readProcessStdin;
+    return { content: await readStdin(), label: "stdin" };
+  }
+  const refInput = splitGitRefInput(arg);
+  if (refInput) {
+    const runGitShow = deps.runGitShow ?? defaultGitShow;
+    try {
+      return { content: await runGitShow(refInput.ref, refInput.filePath), label: path.basename(refInput.filePath) };
+    } catch (error) {
+      throw new Error(`Could not read lockfile ${arg}: ${errorMessage(error)}`);
+    }
+  }
+  try {
+    return { content: await readFile(arg, "utf8"), label: arg };
+  } catch (error) {
+    throw new Error(`Could not read lockfile ${arg}: ${errorMessage(error)}`);
+  }
 }
 
 export function applyBatchExitCode(report: Pick<BatchReport, "errors">): void {
@@ -162,6 +211,7 @@ export function parseBatchArgs(args: string[]): BatchCliOptions {
     positionals: []
   };
   let concurrency = 4;
+  let detail = false;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -175,6 +225,8 @@ export function parseBatchArgs(args: string[]): BatchCliOptions {
       throw new Error("--advisories values are not supported in v0; batch advisories are not supported");
     } else if (arg === "--keep") {
       options.keep = true;
+    } else if (arg === "--detail") {
+      detail = true;
     } else if (arg === "--registry") {
       const value = args[index + 1];
       if (!value) throw new Error("--registry requires a URL");
@@ -193,15 +245,19 @@ export function parseBatchArgs(args: string[]): BatchCliOptions {
   }
 
   if (options.positionals.length !== 2) {
-    throw new Error("Expected exactly two lockfile paths: sift batch <old-package-lock.json> <new-package-lock.json>");
+    throw new Error("Expected exactly two lockfile inputs: sift batch <old-lockfile> <new-lockfile>");
   }
-  if (options.diff && !options.json) {
-    throw new Error("sift batch --diff requires --json");
+  if (options.positionals.filter((arg) => arg === "-").length > 1) {
+    throw new Error("sift batch accepts stdin for only one lockfile argument");
+  }
+  if (options.diff && !options.json && !detail) {
+    throw new Error("sift batch --diff requires --json unless --detail is set");
   }
 
   return {
     ...options,
     concurrency,
+    detail,
     oldLockfile: options.positionals[0],
     newLockfile: options.positionals[1]
   };
@@ -210,7 +266,7 @@ export function parseBatchArgs(args: string[]): BatchCliOptions {
 export function helpText(): string {
   return `Usage:
   sift <name>@<old> <name>@<new> [options]
-  sift batch <old-package-lock.json> <new-package-lock.json> [options]
+  sift batch <old-lockfile> <new-lockfile> [options]
 
 Options:
   --json              Emit structured JSON
@@ -221,17 +277,19 @@ Options:
   --help, -h          Show this help
 
 Batch options:
+  --detail            Expand analyzed entries in human output
   --concurrency <n>   Batch fetch/analyze parallelism, defaulting to 4
 `;
 }
 
 export function batchHelpText(): string {
   return `Usage:
-  sift batch <old-package-lock.json> <new-package-lock.json> [options]
+  sift batch <old-lockfile> <new-lockfile> [options]
 
 Options:
   --json              Emit structured JSON
-  --diff              Include full text diffs; requires --json
+  --diff              Include full text diffs; requires --json unless --detail is set
+  --detail            Expand analyzed entries in human output
   --registry <url>    npm registry URL, defaulting to ${DEFAULT_REGISTRY}
   --keep              Preserve extracted tarballs and temp dirs
   --concurrency <n>   Batch fetch/analyze parallelism, defaulting to 4
@@ -284,6 +342,48 @@ function parseConcurrency(value: string): number {
     throw new Error("--concurrency must be a positive integer");
   }
   return parsed;
+}
+
+function splitGitRefInput(arg: string): { ref: string; filePath: string } | undefined {
+  const index = arg.indexOf(":");
+  if (index <= 0 || index === arg.length - 1) return undefined;
+  const ref = arg.slice(0, index);
+  const filePath = arg.slice(index + 1);
+  if (filePath.startsWith("/") || /^[A-Za-z]:[\\/]/.test(arg)) return undefined;
+  return { ref, filePath };
+}
+
+async function defaultGitShow(ref: string, filePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", ["show", `${ref}:${filePath}`], { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolve(stdout);
+      else reject(new Error(stderr.trim() || `git show exited with code ${code ?? "unknown"}`));
+    });
+  });
+}
+
+async function readProcessStdin(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk: string) => {
+      data += chunk;
+    });
+    process.stdin.on("end", () => resolve(data));
+    process.stdin.on("error", reject);
+  });
 }
 
 function isHelpRequest(args: string[]): boolean {

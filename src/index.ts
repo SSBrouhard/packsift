@@ -2,7 +2,7 @@ export { analyze } from "./analyze.js";
 export { fetchAdvisories } from "./advisories.js";
 export { analyzeBatch, classifyTransitions } from "./batch.js";
 export { formatAdvisorySidecar, formatBatchHuman, formatHuman } from "./format.js";
-export { parseLockfile, parseLockfileData, packageNameFromLockPath } from "./lockfile.js";
+export { parseLockfile, parseLockfileAuto, parseLockfileContent, parseLockfileData, packageNameFromLockPath } from "./lockfile.js";
 export { parsePackageSpec, assertSamePackage } from "./spec.js";
 export { verifyBytes } from "./registry.js";
 export type {
@@ -15,6 +15,8 @@ export type {
   BatchErrorEntry,
   BatchReport,
   ClassifiedTransitions,
+  LockfileFormat,
+  ParsedLockfile,
   Report,
   SkippedEntry,
   SkippedReason,
