@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyzeBatch, classifyTransitions, formatBatchHuman } from "../src/index.js";
-import { applyBatchExitCode, parseArgs, parseBatchArgs } from "../src/cli.js";
+import { applyBatchExitCode, batchHelpText, helpText, parseArgs, parseBatchArgs } from "../src/cli.js";
 import { FetchResult } from "../src/registry.js";
 import { ClassifiedTransitions, PackageManifest, Report } from "../src/types.js";
 
@@ -147,6 +147,13 @@ describe("batch formatting and CLI parsing", () => {
       concurrency: 8
     });
     expect(parseArgs(["left@1.0.0", "left@1.0.1"]).positionals).toEqual(["left@1.0.0", "left@1.0.1"]);
+  });
+
+  it("documents top-level and batch help", () => {
+    expect(helpText()).toContain("sift <name>@<old> <name>@<new> [options]");
+    expect(helpText()).toContain("sift batch <old-package-lock.json> <new-package-lock.json> [options]");
+    expect(batchHelpText()).toContain("Unsupported in batch mode:");
+    expect(batchHelpText()).toContain("--advisories");
   });
 
   it("rejects bad batch arity and concurrency", () => {

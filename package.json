@@ -2,15 +2,31 @@
   "name": "@ssbrouhard/sift",
   "version": "0.1.0",
   "description": "Deterministic npm tarball diff CLI with supply-chain tripwires.",
+  "keywords": [
+    "npm",
+    "supply-chain",
+    "tarball",
+    "diff",
+    "security"
+  ],
   "license": "Apache-2.0",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SSBrouhard/sift.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SSBrouhard/sift/issues"
+  },
+  "homepage": "https://github.com/SSBrouhard/sift#readme",
   "bin": {
     "sift": "./dist/cli.js"
   },
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -23,7 +39,7 @@
     "tar": "^7.4.3"
   },
   "devDependencies": {
-    "@types/node": "^24.10.2",
+    "@types/node": "20.19.43",
     "typescript": "^5.9.3",
     "vitest": "^4.0.15"
   },
