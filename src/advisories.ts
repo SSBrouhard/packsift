@@ -126,7 +126,7 @@ export async function buildAdvisorySidecar(
 }
 
 export function advisorySource(endpoint = DEFAULT_ADVISORY_ENDPOINT): string {
-  return isDefaultAdvisoryEndpoint(endpoint) ? "OSV.dev" : `OSV-compatible endpoint: ${endpoint}`;
+  return isDefaultAdvisoryEndpoint(endpoint) ? "OSV.dev" : `OSV-compatible endpoint: ${redactedEndpointLabel(endpoint)}`;
 }
 
 export function isDefaultAdvisoryEndpoint(endpoint: string): boolean {
@@ -224,6 +224,19 @@ function stripTrailingSlashes(value: string): string {
 
 function stripTrailingDots(value: string): string {
   return value.replace(/\.+$/, "");
+}
+
+function redactedEndpointLabel(endpoint: string): string {
+  try {
+    const parsed = new URL(endpoint);
+    parsed.username = "";
+    parsed.password = "";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return "(invalid endpoint)";
+  }
 }
 
 function mapSeverity(vuln: OsvVulnerability, packageName: string): string {

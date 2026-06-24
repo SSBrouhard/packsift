@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { advisorySource } from "../src/advisories.js";
 import { fetchAdvisories } from "../src/index.js";
 
 describe("OSV advisory client", () => {
@@ -277,6 +278,23 @@ describe("OSV advisory client", () => {
       endpoint: "https://osv.mycorp.internal/v1/query",
       fetch: async () => new Response("{", { status: 200 })
     })).rejects.toThrow("OSV-compatible endpoint: https://osv.mycorp.internal/v1/query response was not valid JSON");
+  });
+
+  it("redacts custom endpoint secrets from source labels and failures", async () => {
+    const endpoint = "https://user:token@osv.mycorp.internal/v1/query?api_key=secret#frag";
+
+    expect(advisorySource(endpoint)).toBe("OSV-compatible endpoint: https://osv.mycorp.internal/v1/query");
+    const failure = fetchAdvisories("pkg", "1.0.0", {
+      endpoint,
+      fetch: async () => new Response("nope", { status: 503 })
+    });
+    const message = await failure.then(
+      () => "",
+      (error: unknown) => error instanceof Error ? error.message : String(error)
+    );
+
+    expect(message).toBe("OSV-compatible endpoint: https://osv.mycorp.internal/v1/query request failed: HTTP 503");
+    expect(message).not.toMatch(/user|token|api_key|secret|frag/);
   });
 
   it("times out unresponsive requests", async () => {
