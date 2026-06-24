@@ -412,6 +412,26 @@ const signalCoverageReport: Report = {
   }
 };
 
+const advisoryCoverageSidecar: AdvisorySidecar = {
+  enabled: true,
+  source: "OSV.dev",
+  fetchedAt: "2026-06-23T12:00:00.000Z",
+  oldVersion: {
+    version: "1.0.0",
+    vulns: [
+      {
+        id: "ADV-1",
+        aliases: ["CVE-1"],
+        summary: "Source package advisory note.",
+        severity: "MEDIUM",
+        affectedRanges: [">=1.0.0 <1.0.1"],
+        references: ["https://example.test/advisory"]
+      }
+    ]
+  },
+  newVersion: { version: "1.0.1", vulns: [], unavailable: "HTTP 500" }
+};
+
 const batchCoverageReport: BatchReport = {
   sources: {
     old: "npm package-lock v3",
@@ -425,7 +445,8 @@ const batchCoverageReport: BatchReport = {
         packageName: "alpha",
         oldVersion: "1.0.0",
         newVersion: "2.0.0"
-      }
+      },
+      advisorySidecar: advisoryCoverageSidecar
     },
     {
       name: "beta",
@@ -443,23 +464,4 @@ const batchCoverageReport: BatchReport = {
     { name: "gone-only", reason: "removed" }
   ],
   errors: [{ name: "fetch-error", message: "HTTP 500" }]
-};
-
-const advisoryCoverageSidecar: AdvisorySidecar = {
-  enabled: true,
-  source: "OSV.dev",
-  fetchedAt: "2026-06-23T12:00:00.000Z",
-  oldVersion: {
-    version: "1.0.0",
-    vulns: [
-      {
-        id: "ADV-1",
-        aliases: ["CVE-1"],
-        severity: "MEDIUM",
-        affectedRanges: [">=1.0.0 <1.0.1"],
-        references: ["https://example.test/advisory"]
-      }
-    ]
-  },
-  newVersion: { version: "1.0.1", vulns: [], unavailable: "HTTP 500" }
 };

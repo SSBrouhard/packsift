@@ -49,6 +49,30 @@ describe("OSV advisory client", () => {
     await expect(fetchAdvisories("pkg", "1.0.0", { fetch: async () => jsonResponse({ vulns: [] }) })).resolves.toEqual([]);
   });
 
+  it("maps summary only when requested", async () => {
+    const fetchImpl: typeof fetch = async () => jsonResponse({ vulns: [{ id: "A", summary: "third-party summary text" }] });
+
+    await expect(fetchAdvisories("pkg", "1.0.0", { fetch: fetchImpl })).resolves.toEqual([
+      {
+        id: "A",
+        aliases: [],
+        severity: "(none reported)",
+        affectedRanges: [],
+        references: []
+      }
+    ]);
+    await expect(fetchAdvisories("pkg", "1.0.0", { fetch: fetchImpl, includeSummary: true })).resolves.toEqual([
+      {
+        id: "A",
+        aliases: [],
+        summary: "third-party summary text",
+        severity: "(none reported)",
+        affectedRanges: [],
+        references: []
+      }
+    ]);
+  });
+
   it("follows OSV pagination tokens", async () => {
     const requests: unknown[] = [];
     const responses = [

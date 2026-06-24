@@ -127,6 +127,7 @@ export interface Report {
 export interface Advisory {
   id: string;
   aliases: string[];
+  summary?: string;
   severity: string;
   affectedRanges: string[];
   references: string[];
@@ -193,6 +194,7 @@ export interface ClassifiedTransitions {
 export interface BatchEntry {
   name: string;
   report: Report;
+  advisorySidecar?: AdvisorySidecar;
 }
 
 export interface BatchErrorEntry {

@@ -1,6 +1,8 @@
 import { analyze } from "./analyze.js";
+import { buildAdvisorySidecar } from "./advisories.js";
 import { fetchArtifacts, FetchOptions, FetchResult } from "./registry.js";
 import {
+  Advisory,
   BatchEntry,
   BatchErrorEntry,
   BatchReport,
@@ -14,6 +16,10 @@ import {
 export interface AnalyzeBatchOptions extends FetchOptions {
   includeDiffs?: boolean;
   concurrency?: number;
+  advisories?: {
+    fetchAdvisories: (name: string, version: string) => Promise<Advisory[]>;
+    now: () => Date;
+  };
 }
 
 interface AnalyzeBatchDependencies {
@@ -99,6 +105,18 @@ export async function analyzeBatch(
       errors.push({ name: transition.name, message: messageFor(error) });
     }
   });
+
+  if (options.advisories) {
+    await runPool(analyzed, concurrency, async (entry) => {
+      entry.advisorySidecar = await buildAdvisorySidecar(
+        entry.name,
+        entry.report.oldVersion,
+        entry.report.newVersion,
+        options.advisories!.fetchAdvisories,
+        options.advisories!.now
+      );
+    });
+  }
 
   return {
     analyzed: analyzed.sort(byName),

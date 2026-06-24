@@ -5,20 +5,23 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyze } from "./analyze.js";
-import { fetchAdvisories } from "./advisories.js";
+import { buildAdvisorySidecar, fetchAdvisories } from "./advisories.js";
 import { analyzeBatch, classifyTransitions } from "./batch.js";
 import { formatBatchHuman, formatHuman } from "./format.js";
 import { parseLockfileContent } from "./lockfile.js";
 import { fetchArtifacts } from "./registry.js";
 import { assertSamePackage, parsePackageSpec } from "./spec.js";
-import { type Advisory, type AdvisorySidecar, type BatchReport, type Report } from "./types.js";
+import { type AdvisorySidecar, type BatchReport, type Report } from "./types.js";
 
 const DEFAULT_REGISTRY = "https://registry.npmjs.org";
+type AdvisoryMode = "off" | "structured" | "summary";
 
 export interface CliOptions {
   json: boolean;
   diff: boolean;
-  advisories: boolean;
+  advisories: AdvisoryMode;
+  advisoryEndpoint?: string;
+  advisoriesAllowPublic: boolean;
   registry: string;
   keep: boolean;
   positionals: string[];
@@ -87,8 +90,14 @@ export async function runSingleTransition(options: CliOptions, deps: SingleTrans
       },
       { includeDiffs: options.diff }
     );
-    const advisorySidecar = options.advisories
-      ? await buildAdvisorySidecar(oldSpec.name, oldSpec.version, newSpec.version, deps.fetchAdvisories ?? fetchAdvisories, deps.now ?? (() => new Date()))
+    const advisorySidecar = options.advisories !== "off"
+      ? await buildAdvisorySidecar(
+        oldSpec.name,
+        oldSpec.version,
+        newSpec.version,
+        advisoryFetcher(options, deps.fetchAdvisories ?? fetchAdvisories),
+        deps.now ?? (() => new Date())
+      )
       : undefined;
 
     if (options.json) {
@@ -104,10 +113,15 @@ export async function runSingleTransition(options: CliOptions, deps: SingleTrans
 interface BatchDeps {
   readStdin?: () => Promise<string>;
   runGitShow?: (ref: string, filePath: string) => Promise<string>;
+  fetchArtifacts?: typeof fetchArtifacts;
+  analyze?: typeof analyze;
+  fetchAdvisories?: typeof fetchAdvisories;
+  now?: () => Date;
   write?: (text: string) => void;
 }
 
 export async function runBatch(options: BatchCliOptions, deps: BatchDeps = {}): Promise<void> {
+  assertAdvisoryRegistry(options);
   const stdinCount = [options.oldLockfile, options.newLockfile].filter((arg) => arg === "-").length;
   if (stdinCount > 1) throw new Error("sift batch accepts stdin for only one lockfile argument");
 
@@ -120,7 +134,16 @@ export async function runBatch(options: BatchCliOptions, deps: BatchDeps = {}): 
     registry: options.registry,
     keep: options.keep,
     includeDiffs: options.diff,
-    concurrency: options.concurrency
+    concurrency: options.concurrency,
+    advisories: options.advisories === "off"
+      ? undefined
+      : {
+        fetchAdvisories: advisoryFetcher(options, deps.fetchAdvisories ?? fetchAdvisories),
+        now: deps.now ?? (() => new Date())
+      }
+  }, {
+    fetchArtifacts: deps.fetchArtifacts,
+    analyze: deps.analyze
   });
   const report: BatchReport = {
     sources: {
@@ -173,7 +196,8 @@ export function parseArgs(args: string[]): CliOptions {
   const options: CliOptions = {
     json: false,
     diff: false,
-    advisories: false,
+    advisories: "off",
+    advisoriesAllowPublic: false,
     registry: DEFAULT_REGISTRY,
     keep: false,
     positionals: []
@@ -183,8 +207,15 @@ export function parseArgs(args: string[]): CliOptions {
     const arg = args[index];
     if (arg === "--json") options.json = true;
     else if (arg === "--diff") options.diff = true;
-    else if (arg === "--advisories") options.advisories = true;
-    else if (arg.startsWith("--advisories=")) throw new Error("--advisories values are not supported in v0; use bare --advisories");
+    else if (arg === "--advisories") options.advisories = "structured";
+    else if (arg === "--advisories=summary") options.advisories = "summary";
+    else if (arg.startsWith("--advisories=")) throw new Error("Only --advisories=summary is supported; use bare --advisories for structured fields");
+    else if (arg === "--advisory-endpoint") {
+      const value = args[index + 1];
+      if (!value) throw new Error("--advisory-endpoint requires a URL");
+      options.advisoryEndpoint = parseEndpointUrl(value, "--advisory-endpoint");
+      index += 1;
+    } else if (arg === "--advisories-allow-public") options.advisoriesAllowPublic = true;
     else if (arg === "--keep") options.keep = true;
     else if (arg === "--registry") {
       const value = args[index + 1];
@@ -205,7 +236,8 @@ export function parseBatchArgs(args: string[]): BatchCliOptions {
   const options: CliOptions = {
     json: false,
     diff: false,
-    advisories: false,
+    advisories: "off",
+    advisoriesAllowPublic: false,
     registry: DEFAULT_REGISTRY,
     keep: false,
     positionals: []
@@ -220,9 +252,18 @@ export function parseBatchArgs(args: string[]): BatchCliOptions {
     } else if (arg === "--diff") {
       options.diff = true;
     } else if (arg === "--advisories") {
-      throw new Error("sift batch --advisories is not supported in v0");
+      options.advisories = "structured";
+    } else if (arg === "--advisories=summary") {
+      options.advisories = "summary";
     } else if (arg.startsWith("--advisories=")) {
-      throw new Error("--advisories values are not supported in v0; batch advisories are not supported");
+      throw new Error("Only --advisories=summary is supported; use bare --advisories for structured fields");
+    } else if (arg === "--advisory-endpoint") {
+      const value = args[index + 1];
+      if (!value) throw new Error("--advisory-endpoint requires a URL");
+      options.advisoryEndpoint = parseEndpointUrl(value, "--advisory-endpoint");
+      index += 1;
+    } else if (arg === "--advisories-allow-public") {
+      options.advisoriesAllowPublic = true;
     } else if (arg === "--keep") {
       options.keep = true;
     } else if (arg === "--detail") {
@@ -272,6 +313,12 @@ Options:
   --json              Emit structured JSON
   --diff              Include full text diffs for changed text files
   --advisories        Add the opt-in OSV.dev advisory sidecar
+  --advisories=summary
+                      Include OSV summary text as third-party passthrough
+  --advisory-endpoint <url>
+                      Query an OSV-compatible advisory endpoint
+  --advisories-allow-public
+                      Allow public OSV lookup with a custom registry
   --registry <url>    npm registry URL, defaulting to ${DEFAULT_REGISTRY}
   --keep              Preserve extracted tarballs and temp dirs
   --help, -h          Show this help
@@ -290,45 +337,45 @@ Options:
   --json              Emit structured JSON
   --diff              Include full text diffs; requires --json unless --detail is set
   --detail            Expand analyzed entries in human output
+  --advisories        Add per-package OSV.dev advisory sidecars
+  --advisories=summary
+                      Include OSV summary text as third-party passthrough
+  --advisory-endpoint <url>
+                      Query an OSV-compatible advisory endpoint
+  --advisories-allow-public
+                      Allow public OSV lookup with a custom registry
   --registry <url>    npm registry URL, defaulting to ${DEFAULT_REGISTRY}
   --keep              Preserve extracted tarballs and temp dirs
   --concurrency <n>   Batch fetch/analyze parallelism, defaulting to 4
   --help, -h          Show this help
 
-Unsupported in batch mode:
-  --advisories
 `;
-}
-
-async function buildAdvisorySidecar(
-  name: string,
-  oldVersion: string,
-  newVersion: string,
-  fetchAdvisoriesImpl: (name: string, version: string) => Promise<Advisory[]>,
-  now: () => Date
-): Promise<AdvisorySidecar> {
-  const [oldResult, newResult] = await Promise.allSettled([fetchAdvisoriesImpl(name, oldVersion), fetchAdvisoriesImpl(name, newVersion)]);
-  return {
-    enabled: true,
-    source: "OSV.dev",
-    fetchedAt: now().toISOString(),
-    oldVersion: settleAdvisoryVersion(oldVersion, oldResult),
-    newVersion: settleAdvisoryVersion(newVersion, newResult)
-  };
-}
-
-function settleAdvisoryVersion(version: string, result: PromiseSettledResult<Advisory[]>) {
-  if (result.status === "fulfilled") return { version, vulns: result.value };
-  return { version, vulns: [], unavailable: errorMessage(result.reason) };
 }
 
 function withAdvisorySidecar(report: Report, advisorySidecar?: AdvisorySidecar): Report | (Report & { advisorySidecar: AdvisorySidecar }) {
   return advisorySidecar ? { ...report, advisorySidecar } : report;
 }
 
-function assertAdvisoryRegistry(options: Pick<CliOptions, "advisories" | "registry">): void {
-  if (options.advisories && options.registry !== DEFAULT_REGISTRY) {
-    throw new Error(`--advisories requires --registry ${DEFAULT_REGISTRY} to avoid sending custom registry package coordinates to OSV.dev`);
+function assertAdvisoryRegistry(options: Pick<CliOptions, "advisories" | "registry" | "advisoryEndpoint" | "advisoriesAllowPublic">): void {
+  if (options.advisories !== "off" && options.registry !== DEFAULT_REGISTRY && !options.advisoryEndpoint && !options.advisoriesAllowPublic) {
+    throw new Error(
+      `--advisories with a custom registry requires --advisory-endpoint <url> or --advisories-allow-public to avoid sending custom registry package coordinates to OSV.dev`
+    );
+  }
+}
+
+function advisoryFetcher(options: Pick<CliOptions, "advisories" | "advisoryEndpoint">, fetchAdvisoriesImpl: typeof fetchAdvisories): typeof fetchAdvisories {
+  return (name, version) => fetchAdvisoriesImpl(name, version, {
+    endpoint: options.advisoryEndpoint,
+    includeSummary: options.advisories === "summary"
+  });
+}
+
+function parseEndpointUrl(value: string, flag: string): string {
+  try {
+    return new URL(value).toString();
+  } catch {
+    throw new Error(`${flag} requires a valid URL`);
   }
 }
 

@@ -1,4 +1,5 @@
 import { type Advisory } from "./types.js";
+import { type AdvisorySidecar } from "./types.js";
 
 const DEFAULT_ENDPOINT = "https://api.osv.dev/v1/query";
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -8,6 +9,7 @@ const NO_SEVERITY = "(none reported)";
 interface FetchAdvisoriesOptions {
   endpoint?: string;
   fetch?: typeof fetch;
+  includeSummary?: boolean;
   timeoutMs?: number;
   maxPages?: number;
 }
@@ -20,6 +22,7 @@ interface OsvQueryResponse {
 interface OsvVulnerability {
   id?: unknown;
   aliases?: unknown;
+  summary?: unknown;
   severity?: unknown;
   database_specific?: unknown;
   affected?: unknown;
@@ -100,7 +103,24 @@ export async function fetchAdvisories(name: string, version: string, options: Fe
     seenPageTokens.add(pageToken);
   }
 
-  return vulns.map((vuln) => mapVulnerability(vuln, name));
+  return vulns.map((vuln) => mapVulnerability(vuln, name, options.includeSummary ?? false));
+}
+
+export async function buildAdvisorySidecar(
+  name: string,
+  oldVersion: string,
+  newVersion: string,
+  fetchAdvisoriesImpl: (name: string, version: string) => Promise<Advisory[]>,
+  now: () => Date
+): Promise<AdvisorySidecar> {
+  const [oldResult, newResult] = await Promise.allSettled([fetchAdvisoriesImpl(name, oldVersion), fetchAdvisoriesImpl(name, newVersion)]);
+  return {
+    enabled: true,
+    source: "OSV.dev",
+    fetchedAt: now().toISOString(),
+    oldVersion: settleAdvisoryVersion(oldVersion, oldResult),
+    newVersion: settleAdvisoryVersion(newVersion, newResult)
+  };
 }
 
 class InvalidJsonError extends Error {}
@@ -142,13 +162,14 @@ async function fetchOsvPage(fetchImpl: typeof fetch, endpoint: string, init: Req
   }
 }
 
-function mapVulnerability(vuln: OsvVulnerability, packageName: string): Advisory {
+function mapVulnerability(vuln: OsvVulnerability, packageName: string, includeSummary: boolean): Advisory {
   return {
     id: stringValue(vuln.id) ?? "(unknown id)",
     aliases: arrayOf(vuln.aliases).flatMap((alias) => {
       const value = stringValue(alias);
       return value === undefined ? [] : [value];
     }),
+    ...(includeSummary && stringValue(vuln.summary) ? { summary: stringValue(vuln.summary) } : {}),
     severity: mapSeverity(vuln, packageName),
     affectedRanges: mapAffectedRanges(vuln.affected, packageName),
     references: arrayOf(vuln.references).flatMap((reference) => {
@@ -156,6 +177,11 @@ function mapVulnerability(vuln: OsvVulnerability, packageName: string): Advisory
       return url === undefined ? [] : [url];
     })
   };
+}
+
+function settleAdvisoryVersion(version: string, result: PromiseSettledResult<Advisory[]>) {
+  if (result.status === "fulfilled") return { version, vulns: result.value };
+  return { version, vulns: [], unavailable: errorMessage(result.reason) };
 }
 
 function mapSeverity(vuln: OsvVulnerability, packageName: string): string {

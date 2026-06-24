@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { analyzeBatch, classifyTransitions, formatBatchHuman } from "../src/index.js";
 import { applyBatchExitCode, batchHelpText, helpText, parseArgs, parseBatchArgs, resolveLockfileArgument, runBatch } from "../src/cli.js";
 import { FetchResult } from "../src/registry.js";
-import { ClassifiedTransitions, PackageManifest, Report } from "../src/types.js";
+import { Advisory, ClassifiedTransitions, PackageManifest, Report } from "../src/types.js";
 
 describe("batch transition classification", () => {
   it("classifies only single-version differing transitions for analysis", () => {
@@ -99,6 +99,83 @@ describe("batch orchestration", () => {
       analyzeBatch({ analyzed: [{ name: "alpha", oldVersion: "1", newVersion: "2" }], skipped: [] }, { registry: "https://registry.test", keep: false, concurrency: 0 })
     ).rejects.toThrow("--concurrency must be a positive integer");
   });
+
+  it("attaches per-package advisory sidecars with bounded concurrency", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const advisoryCalls: string[] = [];
+    const report = await analyzeBatch(
+      {
+        analyzed: [
+          { name: "zebra", oldVersion: "1.0.0", newVersion: "1.0.1" },
+          { name: "alpha", oldVersion: "2.0.0", newVersion: "2.0.1" }
+        ],
+        skipped: [{ name: "added-only", reason: "added" }]
+      },
+      {
+        registry: "https://registry.test",
+        keep: false,
+        concurrency: 1,
+        advisories: {
+          fetchAdvisories: async (name, version) => {
+            inFlight += 1;
+            maxInFlight = Math.max(maxInFlight, inFlight);
+            advisoryCalls.push(`${name}@${version}`);
+            await delay(5);
+            inFlight -= 1;
+            return [{ id: `ADV-${name}-${version}`, aliases: [], severity: "LOW", affectedRanges: [], references: [] }];
+          },
+          now: () => new Date("2026-06-23T12:00:00.000Z")
+        }
+      },
+      {
+        fetchArtifacts: async (oldSpec, newSpec) => fetchResult(oldSpec.name, oldSpec.version, newSpec.version),
+        analyze: async (input) => reportFor(input.packageName, input.oldVersion, input.newVersion)
+      }
+    );
+
+    expect(maxInFlight).toBeLessThanOrEqual(2);
+    expect(advisoryCalls).toEqual(["zebra@1.0.0", "zebra@1.0.1", "alpha@2.0.0", "alpha@2.0.1"]);
+    expect(report.analyzed.map((entry) => entry.name)).toEqual(["alpha", "zebra"]);
+    expect(report.analyzed.every((entry) => entry.advisorySidecar?.fetchedAt === "2026-06-23T12:00:00.000Z")).toBe(true);
+    expect(report.skipped[0]).not.toHaveProperty("advisorySidecar");
+  });
+
+  it("keeps batch analysis when one package advisory lookup fails", async () => {
+    const report = await analyzeBatch(
+      {
+        analyzed: [
+          { name: "alpha", oldVersion: "1.0.0", newVersion: "1.0.1" },
+          { name: "beta", oldVersion: "2.0.0", newVersion: "2.0.1" }
+        ],
+        skipped: []
+      },
+      {
+        registry: "https://registry.test",
+        keep: false,
+        concurrency: 2,
+        advisories: {
+          fetchAdvisories: async (name, version) => {
+            if (name === "alpha" && version === "1.0.0") throw new Error("OSV.dev request failed: HTTP 503");
+            return [];
+          },
+          now: () => new Date("2026-06-23T12:00:00.000Z")
+        }
+      },
+      {
+        fetchArtifacts: async (oldSpec, newSpec) => fetchResult(oldSpec.name, oldSpec.version, newSpec.version),
+        analyze: async (input) => reportFor(input.packageName, input.oldVersion, input.newVersion)
+      }
+    );
+
+    expect(report.errors).toEqual([]);
+    expect(report.analyzed.find((entry) => entry.name === "alpha")?.advisorySidecar?.oldVersion).toMatchObject({
+      version: "1.0.0",
+      vulns: [],
+      unavailable: "OSV.dev request failed: HTTP 503"
+    });
+    expect(report.analyzed.find((entry) => entry.name === "beta")?.advisorySidecar?.oldVersion).toMatchObject({ version: "2.0.0", vulns: [] });
+  });
 });
 
 describe("batch formatting and CLI parsing", () => {
@@ -117,7 +194,7 @@ describe("batch formatting and CLI parsing", () => {
             ]
           }
         },
-        { name: "delta", report: reportFor("delta", "3.0.0", "3.0.1") }
+        { name: "delta", report: reportFor("delta", "3.0.0", "3.0.1"), advisorySidecar: sidecar("3.0.0", "3.0.1", [{ id: "ADV-1", aliases: [], severity: "LOW", affectedRanges: [], references: [] }], []) }
       ],
       skipped: [{ name: "gamma", reason: "multiple-versions" }],
       errors: [{ name: "zeta", message: "HTTP 500" }]
@@ -129,6 +206,7 @@ describe("batch formatting and CLI parsing", () => {
     expect(output).toContain("alpha  1.0.0 -> 1.0.1   1 changed files; signals: new-bin");
     expect(output).toContain("beta  2.0.0 -> 2.0.1   1 changed files; integrity/shasum mismatches: 2");
     expect(output).toContain("delta  3.0.0 -> 3.0.1   1 changed files; signals: no signals");
+    expect(output).toContain("    advisories: 1 for old / none for new");
     expect(output).toContain("gamma  (multiple versions)");
     expect(output).toContain("zeta  HTTP 500");
     expect(output.indexOf("-- Analyzed")).toBeLessThan(output.indexOf("-- Skipped"));
@@ -176,8 +254,8 @@ describe("batch formatting and CLI parsing", () => {
     expect(helpText()).toContain("sift <name>@<old> <name>@<new> [options]");
     expect(helpText()).toContain("sift batch <old-lockfile> <new-lockfile> [options]");
     expect(batchHelpText()).toContain("--detail");
-    expect(batchHelpText()).toContain("Unsupported in batch mode:");
     expect(batchHelpText()).toContain("--advisories");
+    expect(batchHelpText()).toContain("--advisory-endpoint");
   });
 
   it("rejects bad batch arity and concurrency", () => {
@@ -188,9 +266,11 @@ describe("batch formatting and CLI parsing", () => {
     expect(() => parseBatchArgs(["--concurrency", "abc", "old.json", "new.json"])).toThrow("--concurrency must be a positive integer");
   });
 
-  it("rejects advisory sidecars in batch mode for v0", () => {
-    expect(() => parseBatchArgs(["old.json", "new.json", "--advisories"])).toThrow("sift batch --advisories is not supported in v0");
-    expect(() => parseBatchArgs(["old.json", "new.json", "--advisories=summary"])).toThrow("--advisories values are not supported in v0");
+  it("parses advisory sidecars in batch mode", () => {
+    expect(parseBatchArgs(["old.json", "new.json", "--advisories"])).toMatchObject({ advisories: "structured" });
+    expect(parseBatchArgs(["old.json", "new.json", "--advisories=summary"])).toMatchObject({ advisories: "summary" });
+    expect(parseBatchArgs(["old.json", "new.json", "--advisory-endpoint", "https://osv.test/v1/query"])).toMatchObject({ advisoryEndpoint: "https://osv.test/v1/query" });
+    expect(() => parseBatchArgs(["old.json", "new.json", "--advisories=details"])).toThrow("Only --advisories=summary is supported");
   });
 
   it("rejects batch diffs unless JSON can expose them", () => {
@@ -242,6 +322,44 @@ packages:
     expect(parsed.errors).toEqual([]);
   });
 
+  it("runs batch advisory sidecars through CLI JSON output", async () => {
+    const written: string[] = [];
+    await runBatch(
+      parseBatchArgs(["--json", "--advisories=summary", "-", "HEAD:package-lock.json"]),
+      {
+        readStdin: async () => JSON.stringify({
+          lockfileVersion: 3,
+          packages: {
+            "node_modules/alpha": { version: "1.0.0", resolved: "https://registry.npmjs.org/alpha/-/alpha-1.0.0.tgz" }
+          }
+        }),
+        runGitShow: async () => JSON.stringify({
+          lockfileVersion: 3,
+          packages: {
+            "node_modules/alpha": { version: "1.0.1", resolved: "https://registry.npmjs.org/alpha/-/alpha-1.0.1.tgz" }
+          }
+        }),
+        fetchArtifacts: async (oldSpec, newSpec) => fetchResult(oldSpec.name, oldSpec.version, newSpec.version),
+        analyze: async (input) => reportFor(input.packageName, input.oldVersion, input.newVersion),
+        fetchAdvisories: async (_name, _version, options) => [options?.includeSummary ? { id: "ADV-1", aliases: [], summary: "third-party summary text", severity: "LOW", affectedRanges: [], references: [] } : { id: "ADV-1", aliases: [], severity: "LOW", affectedRanges: [], references: [] }],
+        now: () => new Date("2026-06-23T12:00:00.000Z"),
+        write: (text) => written.push(text)
+      }
+    );
+
+    const parsed = JSON.parse(written.join("")) as { analyzed: { advisorySidecar?: { oldVersion: { vulns: Advisory[] } } }[] };
+    expect(parsed.analyzed[0].advisorySidecar?.oldVersion.vulns[0].summary).toBe("third-party summary text");
+  });
+
+  it("applies the custom-registry advisory gate in batch mode", async () => {
+    await expect(
+      runBatch(parseBatchArgs(["--advisories", "--registry", "https://npm.mycorp.internal", "-", "new.json"]), {
+        readStdin: async () => "{}",
+        write: () => undefined
+      })
+    ).rejects.toThrow("--advisories with a custom registry requires --advisory-endpoint <url> or --advisories-allow-public");
+  });
+
   it("sets a failing exit code for partial batch failures", () => {
     const originalExitCode = process.exitCode;
     try {
@@ -288,6 +406,16 @@ function reportFor(name: string, oldVersion: string, newVersion: string): Report
       fired: false,
       threshold: "> 2x or > +1 MB"
     }
+  };
+}
+
+function sidecar(oldVersion: string, newVersion: string, oldVulns: Advisory[], newVulns: Advisory[]) {
+  return {
+    enabled: true as const,
+    source: "OSV.dev" as const,
+    fetchedAt: "2026-06-23T12:00:00.000Z",
+    oldVersion: { version: oldVersion, vulns: oldVulns },
+    newVersion: { version: newVersion, vulns: newVulns }
   };
 }
 
