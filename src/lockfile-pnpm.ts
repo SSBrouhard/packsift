@@ -105,10 +105,23 @@ function parsePnpmPackageKey(rawKey: string): PnpmPackageKey | undefined {
   if (!key) return undefined;
   if (key.startsWith("/")) key = key.slice(1);
   key = key.replace(/\(.+\)$/, "");
+  return parsePnpmAtDelimitedKey(key) ?? parsePnpmSlashDelimitedKey(key);
+}
+
+function parsePnpmAtDelimitedKey(key: string): PnpmPackageKey | undefined {
   const atIndex = key.startsWith("@") ? key.lastIndexOf("@") : key.indexOf("@");
   if (atIndex <= 0) return undefined;
   const name = key.slice(0, atIndex);
   const version = key.slice(atIndex + 1);
+  if (!name || !version || isNonRegistrySpecifier(version)) return undefined;
+  return { name, version };
+}
+
+function parsePnpmSlashDelimitedKey(key: string): PnpmPackageKey | undefined {
+  const slashIndex = key.lastIndexOf("/");
+  if (slashIndex <= 0) return undefined;
+  const name = key.slice(0, slashIndex);
+  const version = key.slice(slashIndex + 1);
   if (!name || !version || isNonRegistrySpecifier(version)) return undefined;
   return { name, version };
 }

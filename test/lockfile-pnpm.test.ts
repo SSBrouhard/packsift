@@ -112,6 +112,25 @@ packages:
     expect([...parsed.map.get("alpha") ?? []].sort()).toEqual(["1.0.0", "1.1.0"]);
   });
 
+  it("parses pnpm v5.4 slash-delimited package keys", () => {
+    const parsed = parseLockfileContent(`lockfileVersion: 5.4
+
+packages:
+  /alpha/1.0.0:
+    resolution:
+      integrity: sha512-alpha
+  /@scope/pkg/2.0.0:
+    resolution:
+      integrity: sha512-scope
+  /@scope/child/3.0.0(peer@1.0.0):
+    resolution:
+      integrity: sha512-child
+`, "pnpm-lock.yaml");
+
+    expect([...parsed.map.keys()].sort()).toEqual(["@scope/child", "@scope/pkg", "alpha"]);
+    expect([...parsed.map.get("@scope/child") ?? []]).toEqual(["3.0.0"]);
+  });
+
   it("rejects unsupported pnpm lockfile versions and malformed YAML", () => {
     expect(() => parseLockfileContent("lockfileVersion: 99.0\npackages: {}\n", "pnpm-lock.yaml")).toThrow("expected pnpm-lock.yaml v5.4, v6.0, or v9.0");
     expect(() => parseLockfileContent("lockfileVersion: '9.0'\npackages:\n  bad: [", "pnpm-lock.yaml")).toThrow("is not valid pnpm-lock.yaml");
