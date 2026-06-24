@@ -88,7 +88,7 @@ function parsePnpmAliasSpecifier(value: string | undefined): PnpmPackageKey | un
 
 function exactVersionTarget(name: string, version: string | undefined): PnpmPackageKey | undefined {
   if (!version || isNonRegistrySpecifier(version) || version.includes(":") || version.includes("/")) return undefined;
-  return { name, version };
+  return { name, version: normalizePnpmVersion(version) };
 }
 
 function normalizedLockfileVersion(value: unknown): string {
@@ -109,11 +109,11 @@ function parsePnpmPackageKey(rawKey: string): PnpmPackageKey | undefined {
 }
 
 function parsePnpmAtDelimitedKey(key: string): PnpmPackageKey | undefined {
-  const atIndex = key.startsWith("@") ? key.lastIndexOf("@") : key.indexOf("@");
+  const atIndex = key.startsWith("@") ? key.indexOf("@", key.indexOf("/") + 1) : key.indexOf("@");
   if (atIndex <= 0) return undefined;
   const name = key.slice(0, atIndex);
-  const version = key.slice(atIndex + 1);
-  if (!name || !version || isNonRegistrySpecifier(version)) return undefined;
+  const version = normalizePnpmVersion(key.slice(atIndex + 1));
+  if (!name || name.includes("/") && !name.startsWith("@") || !version || version.includes("/") || isNonRegistrySpecifier(version)) return undefined;
   return { name, version };
 }
 
@@ -121,9 +121,13 @@ function parsePnpmSlashDelimitedKey(key: string): PnpmPackageKey | undefined {
   const slashIndex = key.lastIndexOf("/");
   if (slashIndex <= 0) return undefined;
   const name = key.slice(0, slashIndex);
-  const version = key.slice(slashIndex + 1);
-  if (!name || !version || isNonRegistrySpecifier(version)) return undefined;
+  const version = normalizePnpmVersion(key.slice(slashIndex + 1));
+  if (!name || !version || version.includes("/") || isNonRegistrySpecifier(version)) return undefined;
   return { name, version };
+}
+
+function normalizePnpmVersion(version: string): string {
+  return version.replace(/\(.+\)$/, "").replace(/_.+$/, "");
 }
 
 function isRegistryPnpmEntry(entry: Record<string, unknown>, key: PnpmPackageKey, registryUrl: URL, registryBaseSegments: string[]): boolean {

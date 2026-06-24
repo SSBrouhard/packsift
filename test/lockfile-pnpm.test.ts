@@ -131,6 +131,22 @@ packages:
     expect([...parsed.map.get("@scope/child") ?? []]).toEqual(["3.0.0"]);
   });
 
+  it("strips pnpm peer suffixes from v5.4 slash and at-delimited keys", () => {
+    const parsed = parseLockfileContent(`lockfileVersion: 5.4
+
+packages:
+  /react-dom/17.0.2_react@17.0.2:
+    resolution:
+      integrity: sha512-react-dom
+  '@scope/pkg@2.0.0_peer@1.0.0':
+    resolution:
+      integrity: sha512-scope
+`, "pnpm-lock.yaml");
+
+    expect([...parsed.map.get("react-dom") ?? []]).toEqual(["17.0.2"]);
+    expect([...parsed.map.get("@scope/pkg") ?? []]).toEqual(["2.0.0"]);
+  });
+
   it("rejects unsupported pnpm lockfile versions and malformed YAML", () => {
     expect(() => parseLockfileContent("lockfileVersion: 99.0\npackages: {}\n", "pnpm-lock.yaml")).toThrow("expected pnpm-lock.yaml v5.4, v6.0, or v9.0");
     expect(() => parseLockfileContent("lockfileVersion: '9.0'\npackages:\n  bad: [", "pnpm-lock.yaml")).toThrow("is not valid pnpm-lock.yaml");
