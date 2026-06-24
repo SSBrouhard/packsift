@@ -35,7 +35,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "diff": "^8.0.2",
+    "diff": "^9.0.0",
     "tar": "^7.4.3"
   },
   "devDependencies": {
