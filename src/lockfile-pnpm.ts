@@ -52,20 +52,30 @@ function collectAliasOnlyPackageKeys(lockfile: Record<string, unknown>): Set<str
 
   for (const importer of Object.values(lockfile.importers)) {
     if (!isRecord(importer)) continue;
-    for (const field of ["dependencies", "devDependencies", "optionalDependencies"] as const) {
-      const dependencies = importer[field];
-      if (!isRecord(dependencies)) continue;
-      for (const [declaredName, dependency] of Object.entries(dependencies)) {
-        const target = pnpmDependencyTarget(declaredName, dependency);
-        if (!target) continue;
-        const key = `${target.name}@${target.version}`;
-        if (declaredName === target.name) directTargets.add(key);
-        else aliasTargets.add(key);
-      }
+    collectDependencyReferences(importer, aliasTargets, directTargets);
+  }
+
+  if (isRecord(lockfile.packages)) {
+    for (const entry of Object.values(lockfile.packages)) {
+      if (isRecord(entry)) collectDependencyReferences(entry, aliasTargets, directTargets);
     }
   }
 
   return new Set([...aliasTargets].filter((key) => !directTargets.has(key)));
+}
+
+function collectDependencyReferences(entry: Record<string, unknown>, aliasTargets: Set<string>, directTargets: Set<string>): void {
+  for (const field of ["dependencies", "devDependencies", "optionalDependencies"] as const) {
+    const dependencies = entry[field];
+    if (!isRecord(dependencies)) continue;
+    for (const [declaredName, dependency] of Object.entries(dependencies)) {
+      const target = pnpmDependencyTarget(declaredName, dependency);
+      if (!target) continue;
+      const key = `${target.name}@${target.version}`;
+      if (declaredName === target.name) directTargets.add(key);
+      else aliasTargets.add(key);
+    }
+  }
 }
 
 function pnpmDependencyTarget(declaredName: string, value: unknown): PnpmPackageKey | undefined {
