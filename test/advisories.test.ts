@@ -268,6 +268,17 @@ describe("OSV advisory client", () => {
     await expect(fetchAdvisories("pkg", "1.0.0", { fetch: async () => new Response("{", { status: 200 }) })).rejects.toThrow("OSV.dev response was not valid JSON");
   });
 
+  it("labels custom endpoint failures with the configured endpoint", async () => {
+    await expect(fetchAdvisories("pkg", "1.0.0", {
+      endpoint: "https://osv.mycorp.internal/v1/query",
+      fetch: async () => new Response("nope", { status: 503 })
+    })).rejects.toThrow("OSV-compatible endpoint: https://osv.mycorp.internal/v1/query request failed: HTTP 503");
+    await expect(fetchAdvisories("pkg", "1.0.0", {
+      endpoint: "https://osv.mycorp.internal/v1/query",
+      fetch: async () => new Response("{", { status: 200 })
+    })).rejects.toThrow("OSV-compatible endpoint: https://osv.mycorp.internal/v1/query response was not valid JSON");
+  });
+
   it("times out unresponsive requests", async () => {
     const stalledFetch: typeof fetch = async (_input, init) => {
       expect(init?.signal).toBeInstanceOf(AbortSignal);

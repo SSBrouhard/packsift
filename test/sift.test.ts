@@ -397,26 +397,33 @@ describe("advisory sidecar rendering and CLI orchestration", () => {
   });
 
   it("rejects public OSV endpoints for custom registries without acknowledgement", async () => {
-    let artifactCalls = 0;
-    let advisoryCalls = 0;
+    for (const endpoint of [
+      "https://api.osv.dev:443/v1/query/",
+      "https://api.osv.dev/v1/query?private=leak",
+      "https://api.osv.dev/%76%31/query",
+      "https://api.osv.dev./v1/query"
+    ]) {
+      let artifactCalls = 0;
+      let advisoryCalls = 0;
 
-    await expect(
-      runSingleTransition(parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--advisories", "--registry", "https://npm.mycorp.internal", "--advisory-endpoint", "https://api.osv.dev:443/v1/query/"]), {
-        fetchArtifacts: async () => {
-          artifactCalls += 1;
-          return fetchResult("pkg", "1.0.0", "1.0.1");
-        },
-        analyze: async () => reportFor("pkg", "1.0.0", "1.0.1"),
-        fetchAdvisories: async () => {
-          advisoryCalls += 1;
-          return [];
-        },
-        write: () => undefined
-      })
-    ).rejects.toThrow("--advisories with a custom registry requires --advisory-endpoint <url> or --advisories-allow-public");
+      await expect(
+        runSingleTransition(parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--advisories", "--registry", "https://npm.mycorp.internal", "--advisory-endpoint", endpoint]), {
+          fetchArtifacts: async () => {
+            artifactCalls += 1;
+            return fetchResult("pkg", "1.0.0", "1.0.1");
+          },
+          analyze: async () => reportFor("pkg", "1.0.0", "1.0.1"),
+          fetchAdvisories: async () => {
+            advisoryCalls += 1;
+            return [];
+          },
+          write: () => undefined
+        })
+      ).rejects.toThrow("--advisories with a custom registry requires --advisory-endpoint <url> or --advisories-allow-public");
 
-    expect(artifactCalls).toBe(0);
-    expect(advisoryCalls).toBe(0);
+      expect(artifactCalls).toBe(0);
+      expect(advisoryCalls).toBe(0);
+    }
   });
 
   it("allows acknowledged public OSV endpoints for custom registries", async () => {

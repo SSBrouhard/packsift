@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyze } from "./analyze.js";
-import { advisorySource, buildAdvisorySidecar, fetchAdvisories, isDefaultAdvisoryEndpoint } from "./advisories.js";
+import { advisorySource, buildAdvisorySidecar, fetchAdvisories, isPublicOsvEndpoint } from "./advisories.js";
 import { analyzeBatch, classifyTransitions } from "./batch.js";
 import { formatBatchHuman, formatHuman } from "./format.js";
 import { parseLockfileContent } from "./lockfile.js";
@@ -363,7 +363,7 @@ function assertAdvisoryRegistry(options: Pick<CliOptions, "advisories" | "regist
     options.advisories !== "off"
     && options.registry !== DEFAULT_REGISTRY
     && !options.advisoriesAllowPublic
-    && (!options.advisoryEndpoint || isDefaultAdvisoryEndpoint(options.advisoryEndpoint))
+    && (!options.advisoryEndpoint || isPublicOsvEndpoint(options.advisoryEndpoint))
   ) {
     throw new Error(
       `--advisories with a custom registry requires --advisory-endpoint <url> or --advisories-allow-public to avoid sending custom registry package coordinates to OSV.dev`

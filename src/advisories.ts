@@ -61,6 +61,7 @@ interface OsvSeverity {
 export async function fetchAdvisories(name: string, version: string, options: FetchAdvisoriesOptions = {}): Promise<Advisory[]> {
   const fetchImpl = options.fetch ?? globalThis.fetch;
   const endpoint = options.endpoint ?? DEFAULT_ADVISORY_ENDPOINT;
+  const source = advisorySource(endpoint);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxPages = options.maxPages ?? DEFAULT_MAX_PAGES;
   if (!fetchImpl) throw new Error("fetch is not available");
@@ -73,7 +74,7 @@ export async function fetchAdvisories(name: string, version: string, options: Fe
 
   while (true) {
     if (pagesFetched >= maxPages) {
-      throw new Error(`OSV.dev pagination did not terminate after ${maxPages} pages`);
+      throw new Error(`${source} pagination did not terminate after ${maxPages} pages`);
     }
 
     const query: Record<string, unknown> = { package: { name, ecosystem: "npm" }, version };
@@ -88,9 +89,9 @@ export async function fetchAdvisories(name: string, version: string, options: Fe
       }, timeoutMs);
     } catch (error) {
       if (error instanceof InvalidJsonError) {
-        throw new Error(`OSV.dev response was not valid JSON: ${error.message}`);
+        throw new Error(`${source} response was not valid JSON: ${error.message}`);
       }
-      throw new Error(`OSV.dev request failed: ${errorMessage(error)}`);
+      throw new Error(`${source} request failed: ${errorMessage(error)}`);
     }
 
     pagesFetched += 1;
@@ -98,7 +99,7 @@ export async function fetchAdvisories(name: string, version: string, options: Fe
     pageToken = stringValue(body.next_page_token);
     if (pageToken === undefined || pageToken === "") break;
     if (seenPageTokens.has(pageToken)) {
-      throw new Error(`OSV.dev pagination repeated next_page_token: ${pageToken}`);
+      throw new Error(`${source} pagination repeated next_page_token: ${pageToken}`);
     }
     seenPageTokens.add(pageToken);
   }
@@ -142,6 +143,14 @@ export function isDefaultAdvisoryEndpoint(endpoint: string): boolean {
     && stripTrailingSlashes(parsed.pathname) === defaultEndpoint.pathname
     && parsed.search === ""
     && parsed.hash === "";
+}
+
+export function isPublicOsvEndpoint(endpoint: string): boolean {
+  try {
+    return stripTrailingDots(new URL(endpoint).hostname) === new URL(DEFAULT_ADVISORY_ENDPOINT).hostname;
+  } catch {
+    return false;
+  }
 }
 
 class InvalidJsonError extends Error {}
@@ -211,6 +220,10 @@ function normalizedPort(url: URL): string {
 
 function stripTrailingSlashes(value: string): string {
   return value.replace(/\/+$/, "");
+}
+
+function stripTrailingDots(value: string): string {
+  return value.replace(/\.+$/, "");
 }
 
 function mapSeverity(vuln: OsvVulnerability, packageName: string): string {

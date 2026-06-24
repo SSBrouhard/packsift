@@ -362,7 +362,7 @@ packages:
     ).rejects.toThrow("--advisories with a custom registry requires --advisory-endpoint <url> or --advisories-allow-public");
 
     await expect(
-      runBatch(parseBatchArgs(["--advisories", "--registry", "https://npm.mycorp.internal", "--advisory-endpoint", "https://api.osv.dev/v1/query", "-", "new.json"]), {
+      runBatch(parseBatchArgs(["--advisories", "--registry", "https://npm.mycorp.internal", "--advisory-endpoint", "https://api.osv.dev/v1/query?private=leak", "-", "new.json"]), {
         readStdin: async () => "{}",
         write: () => undefined
       })
