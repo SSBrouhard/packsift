@@ -91,7 +91,7 @@ export async function fetchAdvisories(name: string, version: string, options: Fe
       if (error instanceof InvalidJsonError) {
         throw new Error(`${source} response was not valid JSON: ${error.message}`);
       }
-      throw new Error(`${source} request failed: ${errorMessage(error)}`);
+      throw new Error(`${source} request failed: ${redactedEndpointErrorMessage(error, endpoint)}`);
     }
 
     pagesFetched += 1;
@@ -237,6 +237,20 @@ function redactedEndpointLabel(endpoint: string): string {
   } catch {
     return "(invalid endpoint)";
   }
+}
+
+function redactedEndpointErrorMessage(error: unknown, endpoint: string): string {
+  let message = errorMessage(error);
+  try {
+    const parsed = new URL(endpoint);
+    const redacted = redactedEndpointLabel(endpoint);
+    for (const candidate of new Set([endpoint, parsed.href, parsed.toString()])) {
+      message = message.split(candidate).join(redacted);
+    }
+  } catch {
+    message = message.split(endpoint).join("(invalid endpoint)");
+  }
+  return message;
 }
 
 function mapSeverity(vuln: OsvVulnerability, packageName: string): string {

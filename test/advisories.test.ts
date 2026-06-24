@@ -297,6 +297,23 @@ describe("OSV advisory client", () => {
     expect(message).not.toMatch(/user|token|api_key|secret|frag/);
   });
 
+  it("redacts custom endpoint secrets from fetch exception messages", async () => {
+    const endpoint = "https://user:token@osv.mycorp.internal/v1/query?api_key=secret#frag";
+    const failure = fetchAdvisories("pkg", "1.0.0", {
+      endpoint,
+      fetch: async () => {
+        throw new TypeError(`Failed to parse URL from ${endpoint}`);
+      }
+    });
+    const message = await failure.then(
+      () => "",
+      (error: unknown) => error instanceof Error ? error.message : String(error)
+    );
+
+    expect(message).toBe("OSV-compatible endpoint: https://osv.mycorp.internal/v1/query request failed: Failed to parse URL from https://osv.mycorp.internal/v1/query");
+    expect(message).not.toMatch(/user|token|api_key|secret|frag/);
+  });
+
   it("times out unresponsive requests", async () => {
     const stalledFetch: typeof fetch = async (_input, init) => {
       expect(init?.signal).toBeInstanceOf(AbortSignal);
