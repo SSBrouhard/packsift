@@ -113,8 +113,8 @@ Signals are deterministic tripwires:
 
 `sift` uses published npm artifacts only, with lockfiles used only to discover
 package transitions for batch analysis. The deterministic core does not clone
-GitHub repositories, call model APIs, ingest advisories, score risk, comment on
-PRs, or inspect consumer project source.
+GitHub repositories, call model APIs, ingest advisories into its analysis, score
+risk, comment on PRs, or inspect consumer project source.
 
 `--advisories` is a fenced sidecar exception, not part of the analyzer. It calls
 OSV.dev without authentication for the two requested npm versions only when the

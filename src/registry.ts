@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import * as tar from "tar";
@@ -118,8 +118,4 @@ export function verifyBytes(version: string, bytes: Buffer, source: IntegritySou
     if (actual !== source.shasum) warnings.push({ version, kind: "shasum", expected: source.shasum, actual });
   }
   return warnings;
-}
-
-export async function readTarballBytes(filePath: string): Promise<Buffer> {
-  return readFile(filePath);
 }
