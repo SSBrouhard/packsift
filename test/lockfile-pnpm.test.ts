@@ -149,6 +149,35 @@ packages:
     expect([...parsed.map.get("left-pad") ?? []]).toEqual(["1.3.0"]);
   });
 
+  it("keeps pnpm alias targets when referenced by a v9 snapshot dependency", () => {
+    const parsed = parseLockfileContent(`lockfileVersion: '9.0'
+
+importers:
+  .:
+    dependencies:
+      alias-left:
+        specifier: npm:left-pad@^1.3.0
+        version: left-pad@1.3.0
+
+packages:
+  parent@1.0.0:
+    resolution:
+      integrity: sha512-parent
+  left-pad@1.3.0:
+    resolution:
+      integrity: sha512-left
+
+snapshots:
+  parent@1.0.0:
+    dependencies:
+      left-pad: 1.3.0
+  left-pad@1.3.0: {}
+`, "pnpm-lock.yaml");
+
+    expect([...parsed.map.keys()].sort()).toEqual(["left-pad", "parent"]);
+    expect([...parsed.map.get("left-pad") ?? []]).toEqual(["1.3.0"]);
+  });
+
   it("captures multiple pnpm versions of one package", () => {
     const parsed = parseLockfileContent(`lockfileVersion: 5.4
 

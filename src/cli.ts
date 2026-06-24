@@ -1,10 +1,9 @@
 #!/usr/bin/env node
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 import { analyze } from "./analyze.js";
 import { fetchAdvisories } from "./advisories.js";
 import { analyzeBatch, classifyTransitions } from "./batch.js";
@@ -15,7 +14,6 @@ import { assertSamePackage, parsePackageSpec } from "./spec.js";
 import { type Advisory, type AdvisorySidecar, type BatchReport, type Report } from "./types.js";
 
 const DEFAULT_REGISTRY = "https://registry.npmjs.org";
-const execFileAsync = promisify(execFile);
 
 export interface CliOptions {
   json: boolean;
@@ -356,8 +354,24 @@ function splitGitRefInput(arg: string): { ref: string; filePath: string } | unde
 }
 
 async function defaultGitShow(ref: string, filePath: string): Promise<string> {
-  const { stdout } = await execFileAsync("git", ["show", `${ref}:${filePath}`], { encoding: "utf8", maxBuffer: 20 * 1024 * 1024 });
-  return stdout;
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", ["show", `${ref}:${filePath}`], { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolve(stdout);
+      else reject(new Error(stderr.trim() || `git show exited with code ${code ?? "unknown"}`));
+    });
+  });
 }
 
 async function readProcessStdin(): Promise<string> {

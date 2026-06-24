@@ -61,6 +61,12 @@ function collectAliasOnlyPackageKeys(lockfile: Record<string, unknown>): Set<str
     }
   }
 
+  if (isRecord(lockfile.snapshots)) {
+    for (const entry of Object.values(lockfile.snapshots)) {
+      if (isRecord(entry)) collectDependencyReferences(entry, aliasTargets, directTargets);
+    }
+  }
+
   return new Set([...aliasTargets].filter((key) => !directTargets.has(key)));
 }
 
