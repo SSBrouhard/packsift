@@ -21,8 +21,10 @@ data exactly.
 
 The core tarball comparison is deterministic and offline after published npm
 artifacts are fetched. The `--advisories` sidecar is the explicit exception:
-opt-in, networked, non-deterministic at query time, attributed to OSV.dev,
-timestamped, and limited to structured advisory fields.
+opt-in, networked, non-deterministic at query time, attributed to OSV.dev or
+the configured OSV-compatible endpoint, timestamped, and structured by default.
+`--advisories=summary` additionally passes through OSV summary text as
+third-party source text.
 
 ## Requirements
 
@@ -36,12 +38,14 @@ sift <name>@<old> <name>@<new>
 sift lodash@4.17.20 lodash@4.17.21
 sift @scope/pkg@1.2.3 @scope/pkg@1.2.4
 sift kysely@0.28.16 kysely@0.28.17 --advisories
+sift kysely@0.28.16 kysely@0.28.17 --advisories=summary
 
 # Compare lockfile transitions.
 sift batch <old-lockfile> <new-lockfile>
 sift batch package-lock.before.json package-lock.json
 sift batch HEAD~1:pnpm-lock.yaml HEAD:pnpm-lock.yaml
 git show HEAD~1:yarn.lock | sift batch - yarn.lock
+sift batch package-lock.before.json package-lock.json --advisories
 ```
 
 Options:
@@ -49,11 +53,21 @@ Options:
 - `--json` emits structured JSON.
 - `--diff` includes full text line diffs for changed text files up to 512 KB.
   In batch mode, `--diff` requires `--json` unless `--detail` is set.
-- `--advisories` adds an opt-in OSV.dev sidecar for single-package transitions.
-  It queries old and new npm versions, then renders only id, aliases, severity,
-  affected ranges, and reference URLs. It is only accepted when `--registry` is
-  exactly `https://registry.npmjs.org`; custom registries are treated as private
-  and rejected before any OSV.dev query. It is not supported in batch mode.
+- `--advisories` adds an opt-in OSV.dev sidecar for single-package transitions
+  and analyzed batch entries. It queries old and new npm versions, then renders
+  id, aliases, severity, affected ranges, and reference URLs.
+- `--advisories=summary` adds the OSV `summary` field as a labeled third-party
+  passthrough line. The default `--advisories` mode omits summary text in both
+  human output and JSON.
+- `--advisory-endpoint <url>` sends advisory queries to an OSV-compatible
+  endpoint, such as a private mirror. This is the preferred path for custom
+  registries because package coordinates do not go to public OSV.dev. Pointing
+  this flag at the public OSV.dev endpoint with a custom registry still requires
+  `--advisories-allow-public`.
+- `--advisories-allow-public` explicitly permits public OSV.dev advisory
+  lookups when `--registry` is not `https://registry.npmjs.org`. Without this
+  flag or a non-public `--advisory-endpoint`, custom registries are treated as
+  private and rejected before any public OSV.dev query.
 - `--registry <url>` selects the npm registry, defaulting to
   `https://registry.npmjs.org`.
 - `--keep` preserves extracted tarballs and temp dirs for debugging.
@@ -89,10 +103,12 @@ show size-only changes.
 
 Batch human output starts with the detected old/new lockfile formats, then has
 analyzed, skipped, and error sections. Analyzed entries summarize changed file
-counts plus signal and integrity evidence. Per-package errors do not stop the
-rest of the batch, but they set the process exit code to 1. Use
-`sift batch --json` for structured per-package reports, or `sift batch --detail`
-for expanded human reports.
+counts plus signal and integrity evidence. With `--advisories`, each analyzed
+entry also gets a compact advisory count line; JSON nests the full
+`advisorySidecar` under each analyzed entry. Per-package errors do not stop the
+rest of the batch, but they set the process exit code to 1. Use `sift batch
+--json` for structured per-package reports, or `sift batch --detail` for
+expanded human reports.
 
 With `--advisories`, single-transition output adds an `Advisory sidecar` block
 after the files block. Empty OSV results render `none returned`. OSV failures
@@ -100,7 +116,7 @@ are non-fatal: the tarball report still prints, and the affected version says
 `advisories unavailable: <reason>`. JSON includes `advisorySidecar` only when
 the flag is set. The sidecar records `enabled`, `source`, `fetchedAt`,
 `oldVersion`, and `newVersion`; each version records `version`, `vulns`, and
-optional `unavailable`.
+optional `unavailable`. Summary mode adds `summary` only when OSV provided it.
 
 Integrity and shasum mismatches are reported as warnings instead of stopping the
 comparison.
@@ -130,7 +146,9 @@ GitHub repositories, call model APIs, ingest advisories into its analysis, score
 risk, comment on PRs, or inspect consumer project source.
 
 `--advisories` is a fenced sidecar exception, not part of the analyzer. It calls
-OSV.dev without authentication for the two requested npm versions only when the
-registry is exactly `https://registry.npmjs.org`, renders structured source
-fields alongside the tarball report, and never maps files to advisories or turns
+OSV.dev without authentication for requested npm versions only when the registry
+is exactly `https://registry.npmjs.org`, unless the user supplies a private
+OSV-compatible endpoint or explicitly acknowledges public OSV.dev use with a
+custom registry. It labels each sidecar with OSV.dev or the configured
+OSV-compatible endpoint, never maps files to advisories, and never turns
 advisory data into a verdict.

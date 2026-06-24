@@ -1,6 +1,7 @@
 import { type Advisory } from "./types.js";
+import { type AdvisorySidecar } from "./types.js";
 
-const DEFAULT_ENDPOINT = "https://api.osv.dev/v1/query";
+export const DEFAULT_ADVISORY_ENDPOINT = "https://api.osv.dev/v1/query";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_PAGES = 10;
 const NO_SEVERITY = "(none reported)";
@@ -8,6 +9,7 @@ const NO_SEVERITY = "(none reported)";
 interface FetchAdvisoriesOptions {
   endpoint?: string;
   fetch?: typeof fetch;
+  includeSummary?: boolean;
   timeoutMs?: number;
   maxPages?: number;
 }
@@ -20,6 +22,7 @@ interface OsvQueryResponse {
 interface OsvVulnerability {
   id?: unknown;
   aliases?: unknown;
+  summary?: unknown;
   severity?: unknown;
   database_specific?: unknown;
   affected?: unknown;
@@ -57,7 +60,8 @@ interface OsvSeverity {
 
 export async function fetchAdvisories(name: string, version: string, options: FetchAdvisoriesOptions = {}): Promise<Advisory[]> {
   const fetchImpl = options.fetch ?? globalThis.fetch;
-  const endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
+  const endpoint = options.endpoint ?? DEFAULT_ADVISORY_ENDPOINT;
+  const source = advisorySource(endpoint);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxPages = options.maxPages ?? DEFAULT_MAX_PAGES;
   if (!fetchImpl) throw new Error("fetch is not available");
@@ -70,7 +74,7 @@ export async function fetchAdvisories(name: string, version: string, options: Fe
 
   while (true) {
     if (pagesFetched >= maxPages) {
-      throw new Error(`OSV.dev pagination did not terminate after ${maxPages} pages`);
+      throw new Error(`${source} pagination did not terminate after ${maxPages} pages`);
     }
 
     const query: Record<string, unknown> = { package: { name, ecosystem: "npm" }, version };
@@ -85,9 +89,9 @@ export async function fetchAdvisories(name: string, version: string, options: Fe
       }, timeoutMs);
     } catch (error) {
       if (error instanceof InvalidJsonError) {
-        throw new Error(`OSV.dev response was not valid JSON: ${error.message}`);
+        throw new Error(`${source} response was not valid JSON: ${error.message}`);
       }
-      throw new Error(`OSV.dev request failed: ${errorMessage(error)}`);
+      throw new Error(`${source} request failed: ${redactedEndpointErrorMessage(error, endpoint)}`);
     }
 
     pagesFetched += 1;
@@ -95,12 +99,58 @@ export async function fetchAdvisories(name: string, version: string, options: Fe
     pageToken = stringValue(body.next_page_token);
     if (pageToken === undefined || pageToken === "") break;
     if (seenPageTokens.has(pageToken)) {
-      throw new Error(`OSV.dev pagination repeated next_page_token: ${pageToken}`);
+      throw new Error(`${source} pagination repeated next_page_token: ${pageToken}`);
     }
     seenPageTokens.add(pageToken);
   }
 
-  return vulns.map((vuln) => mapVulnerability(vuln, name));
+  return vulns.map((vuln) => mapVulnerability(vuln, name, options.includeSummary ?? false));
+}
+
+export async function buildAdvisorySidecar(
+  name: string,
+  oldVersion: string,
+  newVersion: string,
+  fetchAdvisoriesImpl: (name: string, version: string) => Promise<Advisory[]>,
+  now: () => Date,
+  source = advisorySource()
+): Promise<AdvisorySidecar> {
+  const [oldResult, newResult] = await Promise.allSettled([fetchAdvisoriesImpl(name, oldVersion), fetchAdvisoriesImpl(name, newVersion)]);
+  return {
+    enabled: true,
+    source,
+    fetchedAt: now().toISOString(),
+    oldVersion: settleAdvisoryVersion(oldVersion, oldResult),
+    newVersion: settleAdvisoryVersion(newVersion, newResult)
+  };
+}
+
+export function advisorySource(endpoint = DEFAULT_ADVISORY_ENDPOINT): string {
+  return isDefaultAdvisoryEndpoint(endpoint) ? "OSV.dev" : `OSV-compatible endpoint: ${redactedEndpointLabel(endpoint)}`;
+}
+
+export function isDefaultAdvisoryEndpoint(endpoint: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(endpoint);
+  } catch {
+    return false;
+  }
+  const defaultEndpoint = new URL(DEFAULT_ADVISORY_ENDPOINT);
+  return parsed.protocol === defaultEndpoint.protocol
+    && parsed.hostname === defaultEndpoint.hostname
+    && normalizedPort(parsed) === normalizedPort(defaultEndpoint)
+    && stripTrailingSlashes(parsed.pathname) === defaultEndpoint.pathname
+    && parsed.search === ""
+    && parsed.hash === "";
+}
+
+export function isPublicOsvEndpoint(endpoint: string): boolean {
+  try {
+    return stripTrailingDots(new URL(endpoint).hostname) === new URL(DEFAULT_ADVISORY_ENDPOINT).hostname;
+  } catch {
+    return false;
+  }
 }
 
 class InvalidJsonError extends Error {}
@@ -142,13 +192,14 @@ async function fetchOsvPage(fetchImpl: typeof fetch, endpoint: string, init: Req
   }
 }
 
-function mapVulnerability(vuln: OsvVulnerability, packageName: string): Advisory {
+function mapVulnerability(vuln: OsvVulnerability, packageName: string, includeSummary: boolean): Advisory {
   return {
     id: stringValue(vuln.id) ?? "(unknown id)",
     aliases: arrayOf(vuln.aliases).flatMap((alias) => {
       const value = stringValue(alias);
       return value === undefined ? [] : [value];
     }),
+    ...(includeSummary && stringValue(vuln.summary) ? { summary: stringValue(vuln.summary) } : {}),
     severity: mapSeverity(vuln, packageName),
     affectedRanges: mapAffectedRanges(vuln.affected, packageName),
     references: arrayOf(vuln.references).flatMap((reference) => {
@@ -156,6 +207,50 @@ function mapVulnerability(vuln: OsvVulnerability, packageName: string): Advisory
       return url === undefined ? [] : [url];
     })
   };
+}
+
+function settleAdvisoryVersion(version: string, result: PromiseSettledResult<Advisory[]>) {
+  if (result.status === "fulfilled") return { version, vulns: result.value };
+  return { version, vulns: [], unavailable: errorMessage(result.reason) };
+}
+
+function normalizedPort(url: URL): string {
+  return url.port || (url.protocol === "https:" ? "443" : url.protocol === "http:" ? "80" : "");
+}
+
+function stripTrailingSlashes(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
+function stripTrailingDots(value: string): string {
+  return value.replace(/\.+$/, "");
+}
+
+function redactedEndpointLabel(endpoint: string): string {
+  try {
+    const parsed = new URL(endpoint);
+    parsed.username = "";
+    parsed.password = "";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return "(invalid endpoint)";
+  }
+}
+
+function redactedEndpointErrorMessage(error: unknown, endpoint: string): string {
+  let message = errorMessage(error);
+  try {
+    const parsed = new URL(endpoint);
+    const redacted = redactedEndpointLabel(endpoint);
+    for (const candidate of new Set([endpoint, parsed.href, parsed.toString()])) {
+      message = message.split(candidate).join(redacted);
+    }
+  } catch {
+    message = message.split(endpoint).join("(invalid endpoint)");
+  }
+  return message;
 }
 
 function mapSeverity(vuln: OsvVulnerability, packageName: string): string {

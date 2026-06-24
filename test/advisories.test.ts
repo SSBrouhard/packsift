@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { advisorySource } from "../src/advisories.js";
 import { fetchAdvisories } from "../src/index.js";
 
 describe("OSV advisory client", () => {
@@ -47,6 +48,30 @@ describe("OSV advisory client", () => {
 
   it("maps empty responses to an empty advisory list", async () => {
     await expect(fetchAdvisories("pkg", "1.0.0", { fetch: async () => jsonResponse({ vulns: [] }) })).resolves.toEqual([]);
+  });
+
+  it("maps summary only when requested", async () => {
+    const fetchImpl: typeof fetch = async () => jsonResponse({ vulns: [{ id: "A", summary: "third-party summary text" }] });
+
+    await expect(fetchAdvisories("pkg", "1.0.0", { fetch: fetchImpl })).resolves.toEqual([
+      {
+        id: "A",
+        aliases: [],
+        severity: "(none reported)",
+        affectedRanges: [],
+        references: []
+      }
+    ]);
+    await expect(fetchAdvisories("pkg", "1.0.0", { fetch: fetchImpl, includeSummary: true })).resolves.toEqual([
+      {
+        id: "A",
+        aliases: [],
+        summary: "third-party summary text",
+        severity: "(none reported)",
+        affectedRanges: [],
+        references: []
+      }
+    ]);
   });
 
   it("follows OSV pagination tokens", async () => {
@@ -242,6 +267,51 @@ describe("OSV advisory client", () => {
     await expect(fetchAdvisories("pkg", "1.0.0", { fetch: async () => new Response("nope", { status: 503 }) })).rejects.toThrow("OSV.dev request failed: HTTP 503");
     await expect(fetchAdvisories("pkg", "1.0.0", { fetch: async () => { throw new Error("socket closed"); } })).rejects.toThrow("OSV.dev request failed: socket closed");
     await expect(fetchAdvisories("pkg", "1.0.0", { fetch: async () => new Response("{", { status: 200 }) })).rejects.toThrow("OSV.dev response was not valid JSON");
+  });
+
+  it("labels custom endpoint failures with the configured endpoint", async () => {
+    await expect(fetchAdvisories("pkg", "1.0.0", {
+      endpoint: "https://osv.mycorp.internal/v1/query",
+      fetch: async () => new Response("nope", { status: 503 })
+    })).rejects.toThrow("OSV-compatible endpoint: https://osv.mycorp.internal/v1/query request failed: HTTP 503");
+    await expect(fetchAdvisories("pkg", "1.0.0", {
+      endpoint: "https://osv.mycorp.internal/v1/query",
+      fetch: async () => new Response("{", { status: 200 })
+    })).rejects.toThrow("OSV-compatible endpoint: https://osv.mycorp.internal/v1/query response was not valid JSON");
+  });
+
+  it("redacts custom endpoint secrets from source labels and failures", async () => {
+    const endpoint = "https://user:token@osv.mycorp.internal/v1/query?api_key=secret#frag";
+
+    expect(advisorySource(endpoint)).toBe("OSV-compatible endpoint: https://osv.mycorp.internal/v1/query");
+    const failure = fetchAdvisories("pkg", "1.0.0", {
+      endpoint,
+      fetch: async () => new Response("nope", { status: 503 })
+    });
+    const message = await failure.then(
+      () => "",
+      (error: unknown) => error instanceof Error ? error.message : String(error)
+    );
+
+    expect(message).toBe("OSV-compatible endpoint: https://osv.mycorp.internal/v1/query request failed: HTTP 503");
+    expect(message).not.toMatch(/user|token|api_key|secret|frag/);
+  });
+
+  it("redacts custom endpoint secrets from fetch exception messages", async () => {
+    const endpoint = "https://user:token@osv.mycorp.internal/v1/query?api_key=secret#frag";
+    const failure = fetchAdvisories("pkg", "1.0.0", {
+      endpoint,
+      fetch: async () => {
+        throw new TypeError(`Failed to parse URL from ${endpoint}`);
+      }
+    });
+    const message = await failure.then(
+      () => "",
+      (error: unknown) => error instanceof Error ? error.message : String(error)
+    );
+
+    expect(message).toBe("OSV-compatible endpoint: https://osv.mycorp.internal/v1/query request failed: Failed to parse URL from https://osv.mycorp.internal/v1/query");
+    expect(message).not.toMatch(/user|token|api_key|secret|frag/);
   });
 
   it("times out unresponsive requests", async () => {

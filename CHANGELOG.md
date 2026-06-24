@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - Add Dependabot coverage for npm dependencies and GitHub Actions.
 - Align Node type definitions with the Node 20 runtime floor.
 - Extend batch analysis to yarn.lock and pnpm-lock.yaml transitions, git-ref/stdin inputs, source format labels, and detailed human output.
+- Extend advisory sidecars to analyzed batch entries, summary passthrough, and OSV-compatible private endpoints.
 
 ## 0.1.0
 

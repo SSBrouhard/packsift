@@ -269,6 +269,19 @@ describe("advisory sidecar rendering and CLI orchestration", () => {
     expect(output).toContain("  new version 0.28.17\n    none returned");
   });
 
+  it("renders OSV summary as attributed third-party passthrough when present", async () => {
+    const report = await run();
+    const output = formatHuman(report, false, {
+      enabled: true,
+      source: "OSV.dev",
+      fetchedAt: "2026-06-23T12:00:00.000Z",
+      oldVersion: { version: "0.28.16", vulns: [{ ...sampleAdvisory, summary: "Third-party package advisory text." }] },
+      newVersion: { version: "0.28.17", vulns: [] }
+    });
+
+    expect(output).toContain("      summary (OSV): Third-party package advisory text.");
+  });
+
   it("renders empty and unavailable advisory versions without safety wording", async () => {
     const report = await run();
     const bothEmpty = formatHuman(report, false, {
@@ -292,9 +305,12 @@ describe("advisory sidecar rendering and CLI orchestration", () => {
     expect(partialFailure).toContain("new version 1.0.1\n    GHSA-pv5w-4p9q-p3v2");
   });
 
-  it("parses bare --advisories and rejects v0 values", () => {
-    expect(parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--advisories"])).toMatchObject({ advisories: true });
-    expect(() => parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--advisories=summary"])).toThrow("--advisories values are not supported in v0");
+  it("parses bare and summary advisory modes", () => {
+    expect(parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--advisories"])).toMatchObject({ advisories: "structured" });
+    expect(parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--advisories=summary"])).toMatchObject({ advisories: "summary" });
+    expect(() => parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--advisories=details"])).toThrow("Only --advisories=summary is supported");
+    expect(() => parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--advisory-endpoint"])).toThrow("--advisory-endpoint requires a URL");
+    expect(() => parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--advisory-endpoint", "not-a-url"])).toThrow("--advisory-endpoint requires a valid URL");
   });
 
   it("fetches both advisory versions only when requested", async () => {
@@ -345,9 +361,132 @@ describe("advisory sidecar rendering and CLI orchestration", () => {
           return [];
         }
       })
-    ).rejects.toThrow("--advisories requires --registry https://registry.npmjs.org");
+    ).rejects.toThrow("--advisories with a custom registry requires --advisory-endpoint <url> or --advisories-allow-public");
     expect(artifactCalls).toBe(0);
     expect(advisoryCalls).toBe(0);
+  });
+
+  it("uses a private advisory endpoint for custom registries", async () => {
+    const requestedEndpoints: (string | undefined)[] = [];
+    const output: string[] = [];
+    const jsonOutput: string[] = [];
+
+    await runSingleTransition(parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--advisories", "--registry", "https://npm.mycorp.internal", "--advisory-endpoint", "https://osv.mycorp.internal/v1/query"]), {
+      fetchArtifacts: async () => fetchResult("pkg", "1.0.0", "1.0.1"),
+      analyze: async () => reportFor("pkg", "1.0.0", "1.0.1"),
+      fetchAdvisories: async (_name, _version, options) => {
+        requestedEndpoints.push(options?.endpoint);
+        return [];
+      },
+      now: () => new Date("2026-06-23T12:00:00.000Z"),
+      write: (text) => output.push(text)
+    });
+
+    expect(requestedEndpoints).toEqual(["https://osv.mycorp.internal/v1/query", "https://osv.mycorp.internal/v1/query"]);
+    expect(output.join("")).toContain("-- Advisory sidecar: OSV-compatible endpoint: https://osv.mycorp.internal/v1/query fetched 2026-06-23T12:00:00.000Z --");
+
+    await runSingleTransition(parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--json", "--advisories", "--registry", "https://npm.mycorp.internal", "--advisory-endpoint", "https://osv.mycorp.internal/v1/query"]), {
+      fetchArtifacts: async () => fetchResult("pkg", "1.0.0", "1.0.1"),
+      analyze: async () => reportFor("pkg", "1.0.0", "1.0.1"),
+      fetchAdvisories: async () => [],
+      now: () => new Date("2026-06-23T12:00:00.000Z"),
+      write: (text) => jsonOutput.push(text)
+    });
+
+    expect(JSON.parse(jsonOutput.join("")).advisorySidecar.source).toBe("OSV-compatible endpoint: https://osv.mycorp.internal/v1/query");
+  });
+
+  it("redacts private advisory endpoint secrets from output", async () => {
+    const endpoint = "https://user:token@osv.mycorp.internal/v1/query?api_key=secret#frag";
+    const output: string[] = [];
+    const jsonOutput: string[] = [];
+
+    await runSingleTransition(parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--advisories", "--registry", "https://npm.mycorp.internal", "--advisory-endpoint", endpoint]), {
+      fetchArtifacts: async () => fetchResult("pkg", "1.0.0", "1.0.1"),
+      analyze: async () => reportFor("pkg", "1.0.0", "1.0.1"),
+      fetchAdvisories: async () => [],
+      now: () => new Date("2026-06-23T12:00:00.000Z"),
+      write: (text) => output.push(text)
+    });
+
+    expect(output.join("")).toContain("-- Advisory sidecar: OSV-compatible endpoint: https://osv.mycorp.internal/v1/query fetched 2026-06-23T12:00:00.000Z --");
+    expect(output.join("")).not.toMatch(/user|token|api_key|secret|frag/);
+
+    await runSingleTransition(parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--json", "--advisories", "--registry", "https://npm.mycorp.internal", "--advisory-endpoint", endpoint]), {
+      fetchArtifacts: async () => fetchResult("pkg", "1.0.0", "1.0.1"),
+      analyze: async () => reportFor("pkg", "1.0.0", "1.0.1"),
+      fetchAdvisories: async () => [],
+      now: () => new Date("2026-06-23T12:00:00.000Z"),
+      write: (text) => jsonOutput.push(text)
+    });
+
+    expect(JSON.stringify(JSON.parse(jsonOutput.join("")))).toContain("OSV-compatible endpoint: https://osv.mycorp.internal/v1/query");
+    expect(jsonOutput.join("")).not.toMatch(/user|token|api_key|secret|frag/);
+  });
+
+  it("rejects public OSV endpoints for custom registries without acknowledgement", async () => {
+    for (const endpoint of [
+      "https://api.osv.dev:443/v1/query/",
+      "https://api.osv.dev/v1/query?private=leak",
+      "https://api.osv.dev/%76%31/query",
+      "https://api.osv.dev./v1/query"
+    ]) {
+      let artifactCalls = 0;
+      let advisoryCalls = 0;
+
+      await expect(
+        runSingleTransition(parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--advisories", "--registry", "https://npm.mycorp.internal", "--advisory-endpoint", endpoint]), {
+          fetchArtifacts: async () => {
+            artifactCalls += 1;
+            return fetchResult("pkg", "1.0.0", "1.0.1");
+          },
+          analyze: async () => reportFor("pkg", "1.0.0", "1.0.1"),
+          fetchAdvisories: async () => {
+            advisoryCalls += 1;
+            return [];
+          },
+          write: () => undefined
+        })
+      ).rejects.toThrow("--advisories with a custom registry requires --advisory-endpoint <url> or --advisories-allow-public");
+
+      expect(artifactCalls).toBe(0);
+      expect(advisoryCalls).toBe(0);
+    }
+  });
+
+  it("allows acknowledged public OSV endpoints for custom registries", async () => {
+    const requestedEndpoints: (string | undefined)[] = [];
+    const output: string[] = [];
+
+    await runSingleTransition(parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--advisories", "--registry", "https://npm.mycorp.internal", "--advisory-endpoint", "https://api.osv.dev:443/v1/query/", "--advisories-allow-public"]), {
+      fetchArtifacts: async () => fetchResult("pkg", "1.0.0", "1.0.1"),
+      analyze: async () => reportFor("pkg", "1.0.0", "1.0.1"),
+      fetchAdvisories: async (_name, _version, options) => {
+        requestedEndpoints.push(options?.endpoint);
+        return [];
+      },
+      now: () => new Date("2026-06-23T12:00:00.000Z"),
+      write: (text) => output.push(text)
+    });
+
+    expect(requestedEndpoints).toEqual(["https://api.osv.dev/v1/query/", "https://api.osv.dev/v1/query/"]);
+    expect(output.join("")).toContain("-- Advisory sidecar: OSV.dev fetched 2026-06-23T12:00:00.000Z --");
+  });
+
+  it("requires an explicit acknowledgement before using public OSV with a custom registry", async () => {
+    const requestedEndpoints: (string | undefined)[] = [];
+
+    await runSingleTransition(parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--advisories", "--registry", "https://npm.mycorp.internal", "--advisories-allow-public"]), {
+      fetchArtifacts: async () => fetchResult("pkg", "1.0.0", "1.0.1"),
+      analyze: async () => reportFor("pkg", "1.0.0", "1.0.1"),
+      fetchAdvisories: async (_name, _version, options) => {
+        requestedEndpoints.push(options?.endpoint);
+        return [];
+      },
+      write: () => undefined
+    });
+
+    expect(requestedEndpoints).toEqual([undefined, undefined]);
   });
 
   it("keeps core report output when advisory fetching fails", async () => {
@@ -401,6 +540,28 @@ describe("advisory sidecar rendering and CLI orchestration", () => {
     const withoutJson = JSON.parse(withoutOutput.join(""));
     expect(withoutJson.advisorySidecar).toBeUndefined();
     expect(withoutJson.advisories).toBeUndefined();
+  });
+
+  it("includes advisory summary in JSON only in summary mode", async () => {
+    const structuredOutput: string[] = [];
+    await runSingleTransition(parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--json", "--advisories"]), {
+      fetchArtifacts: async () => fetchResult("pkg", "1.0.0", "1.0.1"),
+      analyze: async () => reportFor("pkg", "1.0.0", "1.0.1"),
+      fetchAdvisories: async (_name, _version, options) => [options?.includeSummary ? { ...sampleAdvisory, summary: "must be dropped" } : sampleAdvisory],
+      now: () => new Date("2026-06-23T12:00:00.000Z"),
+      write: (text) => structuredOutput.push(text)
+    });
+    expect(JSON.stringify(JSON.parse(structuredOutput.join("")))).not.toContain("must be dropped");
+
+    const summaryOutput: string[] = [];
+    await runSingleTransition(parseArgs(["pkg@1.0.0", "pkg@1.0.1", "--json", "--advisories=summary"]), {
+      fetchArtifacts: async () => fetchResult("pkg", "1.0.0", "1.0.1"),
+      analyze: async () => reportFor("pkg", "1.0.0", "1.0.1"),
+      fetchAdvisories: async (_name, _version, options) => [options?.includeSummary ? { ...sampleAdvisory, summary: "third-party summary text" } : sampleAdvisory],
+      now: () => new Date("2026-06-23T12:00:00.000Z"),
+      write: (text) => summaryOutput.push(text)
+    });
+    expect(JSON.stringify(JSON.parse(summaryOutput.join("")))).toContain("third-party summary text");
   });
 });
 

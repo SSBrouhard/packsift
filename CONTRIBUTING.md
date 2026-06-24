@@ -31,7 +31,8 @@ node dist/cli.js --help
 
 - Keep the deterministic analyzer focused on published npm artifacts.
 - Do not add model calls, GitHub repository cloning, risk scores, PR comments, or verdict language to core analysis.
-- Keep `--advisories` as a sidecar: opt-in, attributed, structured, and outside `analyze`.
+- Keep `--advisories` as a sidecar: opt-in, attributed, structured by default, and outside `analyze`.
+- Keep OSV summary text as explicit third-party passthrough, and avoid sending custom-registry package coordinates to public OSV.dev unless the user acknowledges it.
 - Preserve source data in JSON output; do not rewrite package names, file paths, registry fields, or advisory identifiers.
 
 ## Runtime Contract

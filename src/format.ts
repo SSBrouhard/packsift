@@ -79,9 +79,12 @@ export function formatBatchHuman(report: BatchReport, options: BatchHumanOptions
       const changedFiles = summary.added + summary.removed + summary.changed;
       const evidence = formatBatchEvidence(entry.report);
       lines.push(`  ${entry.name}  ${entry.report.oldVersion} -> ${entry.report.newVersion}   ${changedFiles} changed files; ${evidence}`);
+      if (entry.advisorySidecar) {
+        lines.push(`    advisories: ${formatBatchAdvisorySummary(entry.advisorySidecar)}`);
+      }
       if (options.detail) {
         lines.push("");
-        lines.push(indentBlock(formatHuman(entry.report, options.includeDiffs ?? false).trimEnd(), "    "));
+        lines.push(indentBlock(formatHuman(entry.report, options.includeDiffs ?? false, entry.advisorySidecar).trimEnd(), "    "));
       }
     }
   }
@@ -142,6 +145,7 @@ function formatAdvisory(advisory: Advisory): string[] {
   lines.push(`      aliases: ${advisory.aliases.length ? advisory.aliases.join(", ") : "(none reported)"}`);
   lines.push(`      severity: ${advisory.severity}`);
   lines.push(`      affected ranges: ${advisory.affectedRanges.length ? advisory.affectedRanges.join(", ") : "(none reported)"}`);
+  if (advisory.summary) lines.push(`      summary (OSV): ${advisory.summary}`);
   lines.push("      references:");
   if (advisory.references.length === 0) {
     lines.push("        - (none reported)");
@@ -149,6 +153,15 @@ function formatAdvisory(advisory: Advisory): string[] {
     for (const reference of advisory.references) lines.push(`        - ${reference}`);
   }
   return lines;
+}
+
+function formatBatchAdvisorySummary(sidecar: AdvisorySidecar): string {
+  return `${formatBatchAdvisoryVersion(sidecar.oldVersion)} for old / ${formatBatchAdvisoryVersion(sidecar.newVersion)} for new`;
+}
+
+function formatBatchAdvisoryVersion(result: AdvisoryVersionResult): string {
+  if (result.unavailable) return "unavailable";
+  return result.vulns.length === 0 ? "none" : `${result.vulns.length}`;
 }
 
 function formatSignal(signal: Signal): string[] {
