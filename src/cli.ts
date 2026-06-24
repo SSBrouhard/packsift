@@ -29,7 +29,15 @@ export interface BatchCliOptions extends CliOptions {
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
+  if (isHelpRequest(argv)) {
+    process.stdout.write(helpText());
+    return;
+  }
   if (argv[0] === "batch") {
+    if (isHelpRequest(argv.slice(1))) {
+      process.stdout.write(batchHelpText());
+      return;
+    }
     await runBatch(parseBatchArgs(argv.slice(1)));
     return;
   }
@@ -199,6 +207,41 @@ export function parseBatchArgs(args: string[]): BatchCliOptions {
   };
 }
 
+export function helpText(): string {
+  return `Usage:
+  sift <name>@<old> <name>@<new> [options]
+  sift batch <old-package-lock.json> <new-package-lock.json> [options]
+
+Options:
+  --json              Emit structured JSON
+  --diff              Include full text diffs for changed text files
+  --advisories        Add the opt-in OSV.dev advisory sidecar
+  --registry <url>    npm registry URL, defaulting to ${DEFAULT_REGISTRY}
+  --keep              Preserve extracted tarballs and temp dirs
+  --help, -h          Show this help
+
+Batch options:
+  --concurrency <n>   Batch fetch/analyze parallelism, defaulting to 4
+`;
+}
+
+export function batchHelpText(): string {
+  return `Usage:
+  sift batch <old-package-lock.json> <new-package-lock.json> [options]
+
+Options:
+  --json              Emit structured JSON
+  --diff              Include full text diffs; requires --json
+  --registry <url>    npm registry URL, defaulting to ${DEFAULT_REGISTRY}
+  --keep              Preserve extracted tarballs and temp dirs
+  --concurrency <n>   Batch fetch/analyze parallelism, defaulting to 4
+  --help, -h          Show this help
+
+Unsupported in batch mode:
+  --advisories
+`;
+}
+
 async function buildAdvisorySidecar(
   name: string,
   oldVersion: string,
@@ -241,6 +284,10 @@ function parseConcurrency(value: string): number {
     throw new Error("--concurrency must be a positive integer");
   }
   return parsed;
+}
+
+function isHelpRequest(args: string[]): boolean {
+  return args.length === 1 && (args[0] === "--help" || args[0] === "-h");
 }
 
 if (isDirectRun()) {
