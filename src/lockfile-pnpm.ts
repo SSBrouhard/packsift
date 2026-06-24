@@ -69,11 +69,11 @@ function collectAliasOnlyPackageKeys(lockfile: Record<string, unknown>): Set<str
 }
 
 function pnpmDependencyTarget(declaredName: string, value: unknown): PnpmPackageKey | undefined {
-  if (typeof value === "string") return parsePnpmDependencyVersion(value) ?? exactVersionTarget(declaredName, value);
+  if (typeof value === "string") return exactVersionTarget(declaredName, value) ?? parsePnpmDependencyVersion(value);
   if (!isRecord(value)) return undefined;
   const specifier = typeof value.specifier === "string" ? value.specifier : undefined;
   const version = typeof value.version === "string" ? value.version : undefined;
-  return parsePnpmDependencyVersion(version) ?? parsePnpmAliasSpecifier(specifier) ?? exactVersionTarget(declaredName, version);
+  return exactVersionTarget(declaredName, version) ?? parsePnpmDependencyVersion(version) ?? parsePnpmAliasSpecifier(specifier);
 }
 
 function parsePnpmDependencyVersion(value: string | undefined): PnpmPackageKey | undefined {
@@ -87,8 +87,9 @@ function parsePnpmAliasSpecifier(value: string | undefined): PnpmPackageKey | un
 }
 
 function exactVersionTarget(name: string, version: string | undefined): PnpmPackageKey | undefined {
-  if (!version || isNonRegistrySpecifier(version) || version.includes(":") || version.includes("/")) return undefined;
-  return { name, version: normalizePnpmVersion(version) };
+  const baseVersion = version ? basePnpmVersion(version) : undefined;
+  if (!baseVersion || isNonRegistrySpecifier(version ?? "") || baseVersion.includes(":") || baseVersion.includes("/") || baseVersion.includes("@")) return undefined;
+  return { name, version: baseVersion };
 }
 
 function normalizedLockfileVersion(value: unknown): string {
@@ -109,11 +110,11 @@ function parsePnpmPackageKey(rawKey: string): PnpmPackageKey | undefined {
 }
 
 function parsePnpmAtDelimitedKey(key: string): PnpmPackageKey | undefined {
-  const atIndex = key.startsWith("@") ? key.indexOf("@", key.indexOf("/") + 1) : key.indexOf("@");
+  const atIndex = key.startsWith("@") ? key.indexOf("@", 1) : key.indexOf("@");
   if (atIndex <= 0) return undefined;
   const name = key.slice(0, atIndex);
-  const version = normalizePnpmVersion(key.slice(atIndex + 1));
-  if (!name || name.includes("/") && !name.startsWith("@") || !version || version.includes("/") || isNonRegistrySpecifier(version)) return undefined;
+  const version = basePnpmVersion(key.slice(atIndex + 1));
+  if (!isPnpmPackageName(name) || !version || isNonRegistrySpecifier(version)) return undefined;
   return { name, version };
 }
 
@@ -121,13 +122,20 @@ function parsePnpmSlashDelimitedKey(key: string): PnpmPackageKey | undefined {
   const slashIndex = key.lastIndexOf("/");
   if (slashIndex <= 0) return undefined;
   const name = key.slice(0, slashIndex);
-  const version = normalizePnpmVersion(key.slice(slashIndex + 1));
-  if (!name || !version || version.includes("/") || isNonRegistrySpecifier(version)) return undefined;
+  const version = basePnpmVersion(key.slice(slashIndex + 1));
+  if (!isPnpmPackageName(name) || !version || isNonRegistrySpecifier(version)) return undefined;
   return { name, version };
 }
 
-function normalizePnpmVersion(version: string): string {
-  return version.replace(/\(.+\)$/, "").replace(/_.+$/, "");
+function basePnpmVersion(version: string): string {
+  return version.replace(/\(.+\)$/, "").split("_", 1)[0];
+}
+
+function isPnpmPackageName(name: string): boolean {
+  if (!name) return false;
+  if (!name.startsWith("@")) return !name.includes("/");
+  const parts = name.split("/");
+  return parts.length === 2 && parts[0].length > 1 && parts[1].length > 0;
 }
 
 function isRegistryPnpmEntry(entry: Record<string, unknown>, key: PnpmPackageKey, registryUrl: URL, registryBaseSegments: string[]): boolean {

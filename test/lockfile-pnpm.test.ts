@@ -16,11 +16,15 @@ packages:
   child@3.0.0(peer@1.0.0):
     resolution:
       integrity: sha512-child
+  '@scope/peer-child@4.0.0_peer@1.0.0':
+    resolution:
+      integrity: sha512-peer-child
 `, "pnpm-lock.yaml");
 
     expect(parsed.formatLabel).toBe("pnpm-lock.yaml v9.0");
-    expect([...parsed.map.keys()].sort()).toEqual(["@scope/pkg", "alpha", "child"]);
+    expect([...parsed.map.keys()].sort()).toEqual(["@scope/peer-child", "@scope/pkg", "alpha", "child"]);
     expect([...parsed.map.get("child") ?? []]).toEqual(["3.0.0"]);
+    expect([...parsed.map.get("@scope/peer-child") ?? []]).toEqual(["4.0.0"]);
   });
 
   it("filters pnpm link, file, git, and off-registry tarballs", () => {
@@ -97,6 +101,29 @@ packages:
     expect([...parsed.map.keys()]).toEqual(["left-pad"]);
   });
 
+  it("keeps pnpm alias targets when direct importer versions have peer suffixes", () => {
+    const parsed = parseLockfileContent(`lockfileVersion: 5.4
+
+importers:
+  .:
+    dependencies:
+      alias-dom:
+        specifier: npm:react-dom@^17.0.2
+        version: react-dom@17.0.2_react@17.0.2
+      react-dom:
+        specifier: ^17.0.2
+        version: 17.0.2_react@17.0.2
+
+packages:
+  /react-dom/17.0.2_react@17.0.2:
+    resolution:
+      integrity: sha512-react-dom
+`, "pnpm-lock.yaml");
+
+    expect([...parsed.map.keys()]).toEqual(["react-dom"]);
+    expect([...parsed.map.get("react-dom") ?? []]).toEqual(["17.0.2"]);
+  });
+
   it("captures multiple pnpm versions of one package", () => {
     const parsed = parseLockfileContent(`lockfileVersion: 5.4
 
@@ -125,10 +152,14 @@ packages:
   /@scope/child/3.0.0(peer@1.0.0):
     resolution:
       integrity: sha512-child
+  /react-dom/17.0.2_react@17.0.2:
+    resolution:
+      integrity: sha512-react-dom
 `, "pnpm-lock.yaml");
 
-    expect([...parsed.map.keys()].sort()).toEqual(["@scope/child", "@scope/pkg", "alpha"]);
+    expect([...parsed.map.keys()].sort()).toEqual(["@scope/child", "@scope/pkg", "alpha", "react-dom"]);
     expect([...parsed.map.get("@scope/child") ?? []]).toEqual(["3.0.0"]);
+    expect([...parsed.map.get("react-dom") ?? []]).toEqual(["17.0.2"]);
   });
 
   it("strips pnpm peer suffixes from v5.4 slash and at-delimited keys", () => {
