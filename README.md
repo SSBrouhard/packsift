@@ -30,6 +30,24 @@ third-party source text.
 
 Node.js 20 or newer.
 
+## Install
+
+Install the CLI globally:
+
+```sh
+npm i -g @ssbrouhard/sift
+sift lodash@4.17.20 lodash@4.17.21
+```
+
+Or run it without installing:
+
+```sh
+npx -y @ssbrouhard/sift lodash@4.17.20 lodash@4.17.21
+```
+
+Releases are published from CI with npm provenance, so published artifacts are
+linked back to the GitHub workflow that built them.
+
 ## Usage
 
 ```sh
