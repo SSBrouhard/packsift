@@ -7,6 +7,8 @@ import { looksTextualBytes } from "./diff.js";
 const LIFECYCLE_SCRIPTS = ["preinstall", "install", "postinstall", "prepare", "prepublishOnly"];
 const NETWORK_TERMS = ["http", "https", "net", "fetch", "child_process", "dns"];
 const SOURCE_EXTENSIONS = new Set([".js", ".ts", ".mjs", ".cjs"]);
+const NATIVE_SOURCE_EXTENSIONS = new Set([".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".hh"]);
+const BUILD_INTERPRETERS = ["node", "python", "python3", "sh", "bash"];
 
 export interface SignalInput {
   oldRoot: string;
@@ -27,7 +29,8 @@ export async function computeSignals(input: SignalInput): Promise<Signal[]> {
     maintainerPublisher(input.oldRegistryManifest, input.newRegistryManifest),
     await executablePayloads(input.entries, input.newRoot),
     await minifiedSource(input.entries, input.oldRoot, input.newRoot),
-    await installPathNetworkCode(input.newRoot, input.newManifest),
+    await nativeBuildConfig(input.entries, input.newFiles, input.newRoot),
+    await installPathNetworkCode(input.newRoot, input.newManifest, input.entries),
     newBinEntries(input.oldManifest, input.newManifest),
     sizeDeltaSignal(input.sizeDelta),
     dependencyFields(input.oldManifest, input.newManifest),
@@ -106,28 +109,69 @@ async function minifiedSource(entries: FileChange[], oldRoot: string, newRoot: s
     : undefined;
 }
 
-async function installPathNetworkCode(newRoot: string, manifest: PackageManifest): Promise<Signal | undefined> {
+async function nativeBuildConfig(entries: FileChange[], newFiles: Map<string, FileInfo>, newRoot: string): Promise<Signal | undefined> {
+  const gypEntries = changedGypEntries(entries);
+  if (gypEntries.length === 0) return undefined;
+
+  const files: string[] = [];
+  const commandSubstitutions: { file: string; expression: string }[] = [];
+  const commands: { file: string; command: string }[] = [];
+
+  for (const entry of gypEntries) {
+    files.push(entry.path);
+    const text = await readText(newRoot, entry.path);
+    const evidence = extractGypEvidence(text);
+    for (const expression of evidence.commandSubstitutions) {
+      commandSubstitutions.push({ file: entry.path, expression });
+    }
+    for (const command of evidence.commands) {
+      commands.push({ file: entry.path, command });
+    }
+  }
+
+  const nativeSourcesPresent = [...newFiles.keys()].some((file) => NATIVE_SOURCE_EXTENSIONS.has(path.extname(file).toLowerCase()));
+
+  return {
+    id: "native-build-config",
+    title: "Native build configuration",
+    details: {
+      files: files.sort(),
+      commandSubstitutions: commandSubstitutions.sort(compareFileEvidence),
+      commands: commands.sort(compareFileEvidence),
+      nativeSourcesPresent
+    }
+  };
+}
+
+async function installPathNetworkCode(newRoot: string, manifest: PackageManifest, entries: FileChange[]): Promise<Signal | undefined> {
   const scripts = Object.entries(manifest.scripts ?? {}).filter(([name]) => LIFECYCLE_SCRIPTS.includes(name));
   const hits: { source: string; terms: string[] }[] = [];
-  const referencedFiles = new Set<string>();
+  const referencedFiles = new Map<string, string>();
 
   for (const [name, command] of scripts) {
     const terms = matchingTerms(command);
     if (terms.length) hits.push({ source: `script:${name}`, terms });
     for (const ref of directFileRefs(command)) {
-      if (await fileExists(newRoot, ref)) referencedFiles.add(ref);
+      if (await fileExists(newRoot, ref)) referencedFiles.set(ref, ref);
     }
   }
 
-  for (const ref of [...referencedFiles]) {
+  for (const entry of changedGypEntries(entries)) {
+    const text = await readText(newRoot, entry.path);
+    for (const ref of gypLocalFileRefs(text)) {
+      if ((await fileExists(newRoot, ref)) && !referencedFiles.has(ref)) referencedFiles.set(ref, `${entry.path} -> ${ref}`);
+    }
+  }
+
+  for (const [ref, source] of referencedFiles) {
     const text = await readText(newRoot, ref);
     const terms = matchingTerms(text);
-    if (terms.length) hits.push({ source: ref, terms });
+    if (terms.length) hits.push({ source, terms });
     for (const imported of directImportRefs(text, ref)) {
       if (await fileExists(newRoot, imported)) {
         const importedText = await readText(newRoot, imported);
         const importedTerms = matchingTerms(importedText);
-        if (importedTerms.length) hits.push({ source: imported, terms: importedTerms });
+        if (importedTerms.length) hits.push({ source: imported === source ? source : `${source} -> ${imported}`, terms: importedTerms });
       }
     }
   }
@@ -136,7 +180,7 @@ async function installPathNetworkCode(newRoot: string, manifest: PackageManifest
     ? {
         id: "install-path-network",
         title: "Install-path network-capable code",
-        details: { heuristic: "lifecycle command plus one-hop local require/import scan", hits }
+        details: { heuristic: "lifecycle/gyp command plus one-hop local require/import scan", hits }
       }
     : undefined;
 }
@@ -219,10 +263,117 @@ function matchingTerms(text: string): string[] {
   return NETWORK_TERMS.filter((term) => lower.includes(term));
 }
 
+function changedGypEntries(entries: FileChange[]): FileChange[] {
+  return entries
+    .filter((entry) => (entry.status === "added" || entry.status === "changed") && isGypFile(entry.path))
+    .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function isGypFile(filePath: string): boolean {
+  const basename = path.posix.basename(filePath).toLowerCase();
+  const ext = path.posix.extname(filePath).toLowerCase();
+  return basename === "binding.gyp" || ext === ".gyp" || ext === ".gypi";
+}
+
+function extractGypEvidence(text: string): { commandSubstitutions: string[]; commands: string[] } {
+  return {
+    commandSubstitutions: uniqueSorted(extractGypCommandSubstitutions(text)),
+    commands: uniqueSorted(extractInterpreterCommands(text))
+  };
+}
+
+function extractGypCommandSubstitutions(text: string): string[] {
+  const substitutions: string[] = [];
+  let index = 0;
+  while (index < text.length) {
+    const start = text.indexOf("<!", index);
+    if (start === -1) break;
+    const open = text[start + 2] === "@" ? start + 3 : start + 2;
+    if (text[open] !== "(") {
+      index = start + 2;
+      continue;
+    }
+
+    const end = findBalancedCloseParen(text, open);
+    if (end === -1) {
+      index = open + 1;
+      continue;
+    }
+
+    substitutions.push(text.slice(start, end + 1).trim());
+    index = end + 1;
+  }
+  return substitutions;
+}
+
+function findBalancedCloseParen(text: string, open: number): number {
+  let depth = 1;
+  let quote: string | undefined;
+  let escaped = false;
+
+  for (let index = open + 1; index < text.length; index++) {
+    const char = text[index];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === "(") {
+      depth++;
+    } else if (char === ")") {
+      depth--;
+      if (depth === 0) return index;
+    }
+  }
+
+  return -1;
+}
+
+function extractInterpreterCommands(text: string): string[] {
+  const commands: string[] = [];
+  const interpreterPattern = BUILD_INTERPRETERS.join("|");
+  const quotedCommand = new RegExp(String.raw`["']((?:${interpreterPattern})(?:\s+[^"']*)?)["']`, "gi");
+  const arrayCommand = new RegExp(String.raw`\[((?:\s*["'][^"']+["']\s*,?)+)\]`, "g");
+
+  for (const match of text.matchAll(quotedCommand)) {
+    const command = match[1].trim();
+    if (startsWithBuildInterpreter(command) && /\s/.test(command)) commands.push(command);
+  }
+
+  for (const match of text.matchAll(arrayCommand)) {
+    const tokens = [...match[1].matchAll(/["']([^"']+)["']/g)].map((tokenMatch) => tokenMatch[1]);
+    if (tokens.length && BUILD_INTERPRETERS.includes(tokens[0].toLowerCase())) {
+      commands.push(tokens.join(" "));
+    }
+  }
+
+  return commands;
+}
+
+function gypLocalFileRefs(text: string): string[] {
+  const refs = new Set<string>();
+  const evidence = extractGypEvidence(text);
+  for (const command of [
+    ...evidence.commands,
+    ...evidence.commandSubstitutions.map((substitution) => substitution.replace(/^<!@?\(/, "").replace(/\)$/, ""))
+  ]) {
+    for (const ref of directFileRefs(command)) refs.add(ref);
+  }
+  return [...refs].sort();
+}
+
 function directFileRefs(command: string): string[] {
   const refs = new Set<string>();
   const patterns = [
-    /\bnode\s+([^\s;&|]+)/g,
+    new RegExp(String.raw`\b(?:${BUILD_INTERPRETERS.join("|")})\s+([^\s;&|]+)`, "g"),
     /\brequire\(["']([^"']+)["']\)/g,
     /\b((?:\.\/|\.\.\/)[^\s;&|]+)/g
   ];
@@ -261,6 +412,19 @@ function normalizeLocalRefs(ref: string): string[] {
   if (path.posix.extname(cleaned)) return [cleaned];
   const candidates = [cleaned, `${cleaned}.js`, `${cleaned}.cjs`, `${cleaned}.mjs`];
   return candidates;
+}
+
+function startsWithBuildInterpreter(command: string): boolean {
+  const first = command.trim().split(/\s+/, 1)[0]?.toLowerCase();
+  return BUILD_INTERPRETERS.includes(first);
+}
+
+function uniqueSorted(values: string[]): string[] {
+  return [...new Set(values)].sort();
+}
+
+function compareFileEvidence(a: { file: string; expression?: string; command?: string }, b: { file: string; expression?: string; command?: string }): number {
+  return a.file.localeCompare(b.file) || (a.expression ?? a.command ?? "").localeCompare(b.expression ?? b.command ?? "");
 }
 
 function normalizeBin(bin: PackageManifest["bin"], packageName?: string): Record<string, string> {

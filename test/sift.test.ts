@@ -143,6 +143,203 @@ describe("reports", () => {
     }
   });
 
+  it("added binding.gyp with command substitution fires native build config", async () => {
+    const report = await run({
+      newFiles: {
+        "binding.gyp": "{ 'targets': [{ 'target_name': 'x', 'variables': { 'out': '<!(node index.js)' } }] }\n",
+        "index.js": "console.log('build');\n"
+      }
+    });
+    const signal = findSignal(report, "native-build-config");
+
+    expect(signal).toBeDefined();
+    expect(signal?.details).toMatchObject({
+      files: ["binding.gyp"],
+      commandSubstitutions: [{ file: "binding.gyp", expression: "<!(node index.js)" }],
+      nativeSourcesPresent: false
+    });
+  });
+
+  it("captures gyp list expansion command substitutions", async () => {
+    const report = await run({
+      newFiles: {
+        "binding.gyp": "{ 'sources': [ '<!@(node scripts/sources.js)' ] }\n",
+        "scripts/sources.js": "console.log('src.cc');\n"
+      }
+    });
+    const signal = findSignal(report, "native-build-config");
+
+    expect(signal?.details).toMatchObject({
+      commandSubstitutions: [{ file: "binding.gyp", expression: "<!@(node scripts/sources.js)" }]
+    });
+  });
+
+  it("captures gyp command substitutions with quoted inner calls", async () => {
+    const report = await run({
+      newFiles: {
+        "binding.gyp": `{ 'include_dirs': [ '<!(node -p "require('node-addon-api').include")' ] }\n`
+      }
+    });
+    const signal = findSignal(report, "native-build-config");
+
+    expect(signal?.details).toMatchObject({
+      commandSubstitutions: [{ file: "binding.gyp", expression: `<!(node -p "require('node-addon-api').include")` }]
+    });
+  });
+
+  it("captures gyp command substitutions with balanced nested calls", async () => {
+    const report = await run({
+      newFiles: {
+        "binding.gyp": "{ 'variables': { 'out': '<!(node scripts/gen.js --expr call(foo))' } }\n"
+      }
+    });
+    const signal = findSignal(report, "native-build-config");
+
+    expect(signal?.details).toMatchObject({
+      commandSubstitutions: [{ file: "binding.gyp", expression: "<!(node scripts/gen.js --expr call(foo))" }]
+    });
+  });
+
+  it("changed gyp files fire while unchanged gyp files do not", async () => {
+    const unchanged = "{ 'targets': [] }\n";
+    const report = await run({
+      oldFiles: {
+        "binding.gyp": unchanged,
+        "addon.gyp": "{ 'targets': [] }\n"
+      },
+      newFiles: {
+        "binding.gyp": unchanged,
+        "addon.gyp": "{ 'targets': [{ 'target_name': 'addon' }] }\n"
+      }
+    });
+    const signal = findSignal(report, "native-build-config");
+
+    expect(signal?.details).toMatchObject({ files: ["addon.gyp"] });
+    expect(JSON.stringify(signal?.details)).not.toContain("binding.gyp");
+  });
+
+  it("binding.gyp with no substitution still fires and records build command arrays", async () => {
+    const report = await run({
+      newFiles: {
+        "binding.gyp": "{ 'actions': [{ 'action': ['python3', 'configure.py'] }] }\n",
+        "configure.py": "print('configure')\n"
+      }
+    });
+    const signal = findSignal(report, "native-build-config");
+
+    expect(signal?.details).toMatchObject({
+      files: ["binding.gyp"],
+      commandSubstitutions: [],
+      commands: [{ file: "binding.gyp", command: "python3 configure.py" }],
+      nativeSourcesPresent: false
+    });
+  });
+
+  it("detects .gyp and .gypi files", async () => {
+    const report = await run({
+      newFiles: {
+        "addon.gyp": "{ 'targets': [] }\n",
+        "config/common.gypi": "{ 'variables': {} }\n"
+      }
+    });
+
+    expect(findSignal(report, "native-build-config")?.details).toMatchObject({
+      files: ["addon.gyp", "config/common.gypi"]
+    });
+  });
+
+  it("records native source presence for gyp packages", async () => {
+    const report = await run({
+      newFiles: {
+        "binding.gyp": "{ 'targets': [{ 'sources': ['src/addon.cc'] }] }\n",
+        "src/addon.cc": "int main() { return 0; }\n"
+      }
+    });
+
+    expect(findSignal(report, "native-build-config")?.details).toMatchObject({ nativeSourcesPresent: true });
+  });
+
+  it("gyp-seeded install path finds network terms without lifecycle scripts", async () => {
+    const report = await run({
+      newFiles: {
+        "binding.gyp": "{ 'targets': [{ 'variables': { 'out': '<!(node index.js)' } }] }\n",
+        "index.js": "const dns = require('dns'); fetch('https://example.com');\n"
+      }
+    });
+    const signal = findSignal(report, "install-path-network");
+
+    expect(signal).toBeDefined();
+    expect(signal?.details).toMatchObject({
+      hits: [{ source: "binding.gyp -> index.js", terms: ["http", "https", "fetch", "dns"] }]
+    });
+  });
+
+  it("gyp-seeded install path scans one-hop local imports", async () => {
+    const report = await run({
+      newFiles: {
+        "binding.gyp": "{ 'targets': [{ 'variables': { 'out': '<!(node index.js)' } }] }\n",
+        "index.js": "require('./helper');\n",
+        "helper.js": "const dns = require('dns');\n"
+      }
+    });
+    const signal = findSignal(report, "install-path-network");
+
+    expect(signal?.details).toMatchObject({
+      hits: [{ source: "binding.gyp -> index.js -> helper.js", terms: ["dns"] }]
+    });
+  });
+
+  it("gyp-seeded install path ignores refs that escape the package root", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "sift-gyp-escape-test-"));
+    const oldDir = path.join(root, "old");
+    const newDir = path.join(root, "new");
+    const oldManifest = { name: "pkg", version: "1.0.0" };
+    const newManifest = { name: "pkg", version: "1.0.1" };
+    await materialize(oldDir, { "package.json": `${JSON.stringify(oldManifest)}\n` });
+    await materialize(newDir, {
+      "package.json": `${JSON.stringify(newManifest)}\n`,
+      "binding.gyp": "{ 'variables': { 'out': '<!(node ../outside.js)' } }\n"
+    });
+    await writeFile(path.join(root, "outside.js"), "const dns = require('dns');\n");
+    try {
+      const report = await analyze(
+        {
+          packageName: "pkg",
+          oldVersion: "1.0.0",
+          newVersion: "1.0.1",
+          oldDir,
+          newDir,
+          oldRegistryManifest: oldManifest,
+          newRegistryManifest: newManifest
+        },
+        { includeDiffs: false }
+      );
+      expect(signalIds(report)).toContain("native-build-config");
+      expect(signalIds(report)).not.toContain("install-path-network");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("JSON includes native build config signal details", async () => {
+    const report = await run({
+      newFiles: {
+        "binding.gyp": "{ 'targets': [{ 'variables': { 'out': '<!(node index.js)' } }] }\n",
+        "index.js": "console.log('build');\n"
+      }
+    });
+    const json = JSON.parse(JSON.stringify(report)) as Report;
+
+    expect(json.signals.find((signal) => signal.id === "native-build-config")).toMatchObject({
+      title: "Native build configuration",
+      details: {
+        files: ["binding.gyp"],
+        commandSubstitutions: [{ file: "binding.gyp", expression: "<!(node index.js)" }],
+        nativeSourcesPresent: false
+      }
+    });
+  });
+
   it("new bin entry fires", async () => {
     const report = await run({
       oldManifest: { name: "pkg", bin: {} },
@@ -663,6 +860,10 @@ async function packageTarball(root: string, fileName: string): Promise<Buffer> {
 
 function signalIds(report: Report): string[] {
   return report.signals.map((signal) => signal.id);
+}
+
+function findSignal(report: Report, id: string) {
+  return report.signals.find((signal) => signal.id === id);
 }
 
 function sri(bytes: Buffer): string {

@@ -104,6 +104,23 @@ function redactSignal(signal: Signal): Signal {
       const details = signal.details as { heuristic?: string; files: string[] };
       return { ...signal, details: { ...details, files: details.files.map(redactString) } };
     }
+    case "native-build-config": {
+      const details = signal.details as {
+        files: string[];
+        commandSubstitutions: { file: string; expression: string }[];
+        commands: { file: string; command: string }[];
+        nativeSourcesPresent: boolean;
+      };
+      return {
+        ...signal,
+        details: {
+          files: details.files.map(redactString),
+          commandSubstitutions: details.commandSubstitutions.map(() => ({ file: "<value>", expression: "<value>" })),
+          commands: details.commands.map(() => ({ file: "<value>", command: "<value>" })),
+          nativeSourcesPresent: details.nativeSourcesPresent
+        }
+      };
+    }
     case "install-path-network": {
       const details = signal.details as { heuristic: string; hits: { source: string; terms: string[] }[] };
       return {
@@ -307,6 +324,16 @@ const signalCoverageReport: Report = {
       details: {
         heuristic: "average line length > 500 chars or one long line over 2 KB",
         files: ["dist/likely.js"]
+      }
+    },
+    {
+      id: "native-build-config",
+      title: "Native build configuration",
+      details: {
+        files: ["binding-should.gyp"],
+        commandSubstitutions: [{ file: "binding-should.gyp", expression: "<!(node recommended.js)" }],
+        commands: [{ file: "binding-should.gyp", command: "python3 likely.py" }],
+        nativeSourcesPresent: false
       }
     },
     {

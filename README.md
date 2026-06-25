@@ -130,8 +130,11 @@ Signals are deterministic tripwires:
   Mach-O, and Windows PE files.
 - New or newly minified JavaScript or TypeScript source by line-length
   heuristic.
-- Install-path network-capable code found in lifecycle commands and one-hop
-  local `require`/`import` references.
+- Added or changed `binding.gyp`, `*.gyp`, or `*.gypi` files, with GYP
+  command substitutions, interpreter build commands, and native source presence.
+- Install-path network-capable code found in lifecycle commands or local GYP
+  command-substitution/build-command targets, plus one-hop local
+  `require`/`import` references.
 - New `bin` entries.
 - Unpacked size growth over 2x or over 1 MB.
 - Dependency-field changes in `dependencies`, `optionalDependencies`,
