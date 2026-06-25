@@ -284,11 +284,57 @@ function extractGypEvidence(text: string): { commandSubstitutions: string[]; com
 
 function extractGypCommandSubstitutions(text: string): string[] {
   const substitutions: string[] = [];
-  const pattern = /<!@?\(([^)]*)\)/g;
-  for (const match of text.matchAll(pattern)) {
-    substitutions.push(match[0].trim());
+  let index = 0;
+  while (index < text.length) {
+    const start = text.indexOf("<!", index);
+    if (start === -1) break;
+    const open = text[start + 2] === "@" ? start + 3 : start + 2;
+    if (text[open] !== "(") {
+      index = start + 2;
+      continue;
+    }
+
+    const end = findBalancedCloseParen(text, open);
+    if (end === -1) {
+      index = open + 1;
+      continue;
+    }
+
+    substitutions.push(text.slice(start, end + 1).trim());
+    index = end + 1;
   }
   return substitutions;
+}
+
+function findBalancedCloseParen(text: string, open: number): number {
+  let depth = 1;
+  let quote: string | undefined;
+  let escaped = false;
+
+  for (let index = open + 1; index < text.length; index++) {
+    const char = text[index];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === "(") {
+      depth++;
+    } else if (char === ")") {
+      depth--;
+      if (depth === 0) return index;
+    }
+  }
+
+  return -1;
 }
 
 function extractInterpreterCommands(text: string): string[] {

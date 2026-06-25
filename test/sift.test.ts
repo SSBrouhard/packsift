@@ -174,6 +174,32 @@ describe("reports", () => {
     });
   });
 
+  it("captures gyp command substitutions with quoted inner calls", async () => {
+    const report = await run({
+      newFiles: {
+        "binding.gyp": `{ 'include_dirs': [ '<!(node -p "require('node-addon-api').include")' ] }\n`
+      }
+    });
+    const signal = findSignal(report, "native-build-config");
+
+    expect(signal?.details).toMatchObject({
+      commandSubstitutions: [{ file: "binding.gyp", expression: `<!(node -p "require('node-addon-api').include")` }]
+    });
+  });
+
+  it("captures gyp command substitutions with balanced nested calls", async () => {
+    const report = await run({
+      newFiles: {
+        "binding.gyp": "{ 'variables': { 'out': '<!(node scripts/gen.js --expr call(foo))' } }\n"
+      }
+    });
+    const signal = findSignal(report, "native-build-config");
+
+    expect(signal?.details).toMatchObject({
+      commandSubstitutions: [{ file: "binding.gyp", expression: "<!(node scripts/gen.js --expr call(foo))" }]
+    });
+  });
+
   it("changed gyp files fire while unchanged gyp files do not", async () => {
     const unchanged = "{ 'targets': [] }\n";
     const report = await run({
