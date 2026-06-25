@@ -102,6 +102,7 @@ export interface Signal {
     | "maintainer-publisher"
     | "executable-payloads"
     | "minified-source"
+    | "native-build-config"
     | "install-path-network"
     | "new-bin"
     | "size-delta"

@@ -16,5 +16,7 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 - CI runs on push and pull request with Node.js 20 and 22, then typecheck, test, and build.
 - Dependabot covers npm dependencies and GitHub Actions weekly.
 - The analyzer strips the npm tarball `package/` prefix, hashes raw bytes, drops unchanged files entirely, and only generates full text diffs when `--diff` is requested.
+- `native-build-config` fires on added/changed `binding.gyp`, `*.gyp`, and `*.gypi` files, surfacing textual GYP command substitutions, interpreter build commands, and whether native source/header files are present.
+- `install-path-network` seeds from lifecycle scripts and local file references in added/changed GYP command substitutions/actions, then keeps the existing one-hop in-package import scan.
 - Batch mode parses npm package-lock/npm-shrinkwrap v2/v3, yarn.lock v1/Berry, and pnpm-lock.yaml v5.4/v6/v9; it accepts working-tree paths, `<ref>:<path>`, and one stdin side, labels the detected old/new formats in every output, ignores non-registry/link/alias/off-registry entries, analyzes changed single-version transitions, and skips added, removed, or multiple-version packages.
 - Evidence-never-verdict enforcement belongs on sift-authored `formatHuman`, `formatBatchHuman`, and `formatAdvisorySidecar` output only; docs, fixture package/user/registry data, and third-party advisory passthrough may mention doctrine vocabulary without failing the invariant.

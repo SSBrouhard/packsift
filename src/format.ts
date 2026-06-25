@@ -187,6 +187,19 @@ function formatSignal(signal: Signal): string[] {
       for (const file of details.files) lines.push(`     ${file}`);
       break;
     }
+    case "native-build-config": {
+      const details = signal.details as {
+        files: string[];
+        commandSubstitutions: { file: string; expression: string }[];
+        commands: { file: string; command: string }[];
+        nativeSourcesPresent: boolean;
+      };
+      for (const file of details.files) lines.push(`     gyp file: ${file}`);
+      for (const item of details.commandSubstitutions) lines.push(`     command substitution: ${item.file}: ${item.expression}`);
+      for (const item of details.commands) lines.push(`     build command: ${item.file}: ${item.command}`);
+      lines.push(`     native sources: ${details.nativeSourcesPresent ? "present" : "none"}`);
+      break;
+    }
     case "install-path-network": {
       const details = signal.details as { heuristic: string; hits: { source: string; terms: string[] }[] };
       lines.push(`     heuristic: ${details.heuristic}`);
