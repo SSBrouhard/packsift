@@ -19,6 +19,9 @@
     "url": "https://github.com/SSBrouhard/sift/issues"
   },
   "homepage": "https://github.com/SSBrouhard/sift#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "sift": "./dist/cli.js"
   },
@@ -31,6 +34,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "prepack": "npm run build",
+    "prepublishOnly": "npm run typecheck && npm test",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
