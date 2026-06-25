@@ -133,8 +133,8 @@ Signals are deterministic tripwires:
 - Added or changed `binding.gyp`, `*.gyp`, or `*.gypi` files, with GYP
   command substitutions, interpreter build commands, and native source presence.
 - Install-path network-capable code found in lifecycle commands or local GYP
-  command-substitution targets, plus one-hop local `require`/`import`
-  references.
+  command-substitution/build-command targets, plus one-hop local
+  `require`/`import` references.
 - New `bin` entries.
 - Unpacked size growth over 2x or over 1 MB.
 - Dependency-field changes in `dependencies`, `optionalDependencies`,

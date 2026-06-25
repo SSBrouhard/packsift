@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - Align Node type definitions with the Node 20 runtime floor.
 - Extend batch analysis to yarn.lock and pnpm-lock.yaml transitions, git-ref/stdin inputs, source format labels, and detailed human output.
 - Extend advisory sidecars to analyzed batch entries, summary passthrough, and OSV-compatible private endpoints.
+- Add native GYP build configuration and GYP-seeded install-path network tripwires.
 
 ## 0.1.0
 
