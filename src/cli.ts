@@ -376,7 +376,7 @@ export function helpText(): string {
 
 Options:
   --json              Emit structured JSON
-  --diff              Include full text diffs for changed text files
+  --diff              Include full text diffs for changed transition files
   --advisories        Add the opt-in OSV.dev advisory sidecar
   --advisories=summary
                       Include OSV summary text as third-party passthrough
@@ -420,7 +420,7 @@ export function batchHelpText(): string {
 
 Options:
   --json              Emit structured JSON
-  --diff              Include full text diffs; requires --json unless --detail is set
+  --diff              Include full text diffs for changed transitions; requires --json unless --detail is set
   --detail            Expand analyzed entries in human output
   --advisories        Add per-package OSV.dev advisory sidecars
   --advisories=summary

@@ -7,8 +7,8 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 ## Project Notes
 
 - Package name is `@ssbrouhard/sift`; the exposed CLI binary is the bare command `sift`.
-- Product scope is published npm tarballs, with npm/yarn/pnpm lockfiles used only to discover batch transitions: no GitHub cloning/API calls, model calls, risk scores, verdicts, or recommendations in the deterministic core.
-- `--advisories` is the explicit opt-in sidecar exception: single-transition and analyzed batch entries only, networked OSV.dev-compatible `/v1/query`, no authentication, timestamped, non-deterministic at query time, structured fields by default, optional third-party OSV summary passthrough with `--advisories=summary`, outside `analyze`, and only allowed with custom registries when `--advisory-endpoint` points at a private mirror or `--advisories-allow-public` explicitly permits public OSV.dev.
+- Product scope is published npm tarballs, with npm/yarn/pnpm lockfiles used only to discover changed and added dependencies for batch analysis: no GitHub cloning/API calls, model calls, risk scores, verdicts, or recommendations in the deterministic core.
+- `--advisories` is the explicit opt-in sidecar exception: single-transition, inspect, and analyzed batch entries only, networked OSV.dev-compatible `/v1/query`, no authentication, timestamped, non-deterministic at query time, structured fields by default, optional third-party OSV summary passthrough with `--advisories=summary`, outside `analyze`, and only allowed with custom registries when `--advisory-endpoint` points at a private mirror or `--advisories-allow-public` explicitly permits public OSV.dev.
 - Runtime support starts at Node.js 20.
 - Keep `@types/node` pinned to the Node.js 20 major line while the runtime floor is Node.js 20.
 - The `yaml` runtime dependency is intentionally exact-pinned and used only to parse yarn Berry and pnpm lockfiles; keep it minimal and zero-transitive because sift is itself a supply-chain tool.

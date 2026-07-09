@@ -83,8 +83,9 @@ sift batch package-lock.before.json package-lock.json --advisories
 Options:
 
 - `--json` emits structured JSON.
-- `--diff` includes full text line diffs for changed text files up to 512 KB.
-  In batch mode, `--diff` requires `--json` unless `--detail` is set.
+- `--diff` includes full text line diffs for changed text files up to 512 KB
+  in transition reports. In batch mode, `--diff` applies to changed
+  transitions and requires `--json` unless `--detail` is set.
 - `--advisories` adds an opt-in OSV.dev sidecar for inspect mode,
   single-package transitions, and analyzed batch entries. Inspect mode queries
   the inspected npm version once. Transition mode queries old and new npm
