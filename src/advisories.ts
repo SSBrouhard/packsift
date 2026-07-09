@@ -1,4 +1,4 @@
-import { type Advisory } from "./types.js";
+import { type Advisory, type InspectAdvisorySidecar } from "./types.js";
 import { type AdvisorySidecar } from "./types.js";
 
 export const DEFAULT_ADVISORY_ENDPOINT = "https://api.osv.dev/v1/query";
@@ -122,6 +122,22 @@ export async function buildAdvisorySidecar(
     fetchedAt: now().toISOString(),
     oldVersion: settleAdvisoryVersion(oldVersion, oldResult),
     newVersion: settleAdvisoryVersion(newVersion, newResult)
+  };
+}
+
+export async function buildInspectAdvisorySidecar(
+  name: string,
+  version: string,
+  fetchAdvisoriesImpl: (name: string, version: string) => Promise<Advisory[]>,
+  now: () => Date,
+  source = advisorySource()
+): Promise<InspectAdvisorySidecar> {
+  const result = await Promise.allSettled([fetchAdvisoriesImpl(name, version)]);
+  return {
+    enabled: true,
+    source,
+    fetchedAt: now().toISOString(),
+    version: settleAdvisoryVersion(version, result[0])
   };
 }
 

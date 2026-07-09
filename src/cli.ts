@@ -5,13 +5,14 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyze } from "./analyze.js";
-import { advisorySource, buildAdvisorySidecar, fetchAdvisories, isPublicOsvEndpoint } from "./advisories.js";
+import { advisorySource, buildAdvisorySidecar, buildInspectAdvisorySidecar, fetchAdvisories, isPublicOsvEndpoint } from "./advisories.js";
 import { analyzeBatch, classifyTransitions } from "./batch.js";
-import { formatBatchHuman, formatHuman } from "./format.js";
+import { formatBatchHuman, formatHuman, formatInspectHuman } from "./format.js";
+import { inspectPackage } from "./inspect.js";
 import { parseLockfileContent } from "./lockfile.js";
-import { fetchArtifacts } from "./registry.js";
+import { fetchArtifacts, fetchPackage } from "./registry.js";
 import { assertSamePackage, parsePackageSpec } from "./spec.js";
-import { type AdvisorySidecar, type BatchReport, type Report } from "./types.js";
+import { type AdvisorySidecar, type BatchReport, type InspectAdvisorySidecar, type InspectReport, type Report } from "./types.js";
 
 const DEFAULT_REGISTRY = "https://registry.npmjs.org";
 type AdvisoryMode = "off" | "structured" | "summary";
@@ -48,6 +49,14 @@ async function main(): Promise<void> {
     await runBatch(parseBatchArgs(argv.slice(1)));
     return;
   }
+  if (argv[0] === "inspect") {
+    if (isHelpRequest(argv.slice(1))) {
+      process.stdout.write(inspectHelpText());
+      return;
+    }
+    await runInspect(parseArgs(argv.slice(1)));
+    return;
+  }
 
   const options = parseArgs(argv);
   await runSingleTransition(options);
@@ -56,6 +65,14 @@ async function main(): Promise<void> {
 interface SingleTransitionDeps {
   fetchArtifacts?: typeof fetchArtifacts;
   analyze?: typeof analyze;
+  fetchAdvisories?: typeof fetchAdvisories;
+  now?: () => Date;
+  write?: (text: string) => void;
+}
+
+interface InspectDeps {
+  fetchPackage?: typeof fetchPackage;
+  inspectPackage?: typeof inspectPackage;
   fetchAdvisories?: typeof fetchAdvisories;
   now?: () => Date;
   write?: (text: string) => void;
@@ -111,11 +128,54 @@ export async function runSingleTransition(options: CliOptions, deps: SingleTrans
   }
 }
 
+export async function runInspect(options: CliOptions, deps: InspectDeps = {}): Promise<void> {
+  if (options.positionals.length !== 1) {
+    throw new Error("Expected exactly one positional arg: sift inspect <name>@<version>");
+  }
+  assertAdvisoryRegistry(options);
+
+  const spec = parsePackageSpec(options.positionals[0]);
+  const fetchPackageImpl = deps.fetchPackage ?? fetchPackage;
+  const inspectImpl = deps.inspectPackage ?? inspectPackage;
+  const write = deps.write ?? ((text: string) => process.stdout.write(text));
+
+  const fetched = await fetchPackageImpl(spec, { registry: options.registry, keep: options.keep });
+  try {
+    const report = await inspectImpl({
+      packageName: spec.name,
+      version: spec.version,
+      packageDir: fetched.artifacts.extractDir,
+      registryManifest: fetched.artifacts.registryManifest,
+      metadata: fetched.metadata,
+      integrityWarnings: fetched.integrityWarnings
+    });
+    const advisorySidecar = options.advisories !== "off"
+      ? await buildInspectAdvisorySidecar(
+        spec.name,
+        spec.version,
+        advisoryFetcher(options, deps.fetchAdvisories ?? fetchAdvisories),
+        deps.now ?? (() => new Date()),
+        advisorySource(options.advisoryEndpoint)
+      )
+      : undefined;
+
+    if (options.json) {
+      write(`${JSON.stringify(withInspectAdvisorySidecar(report, advisorySidecar), null, 2)}\n`);
+    } else {
+      write(formatInspectHuman(report, advisorySidecar));
+    }
+  } finally {
+    await fetched.cleanup();
+  }
+}
+
 interface BatchDeps {
   readStdin?: () => Promise<string>;
   runGitShow?: (ref: string, filePath: string) => Promise<string>;
   fetchArtifacts?: typeof fetchArtifacts;
+  fetchPackage?: typeof fetchPackage;
   analyze?: typeof analyze;
+  inspectPackage?: typeof inspectPackage;
   fetchAdvisories?: typeof fetchAdvisories;
   now?: () => Date;
   write?: (text: string) => void;
@@ -145,7 +205,9 @@ export async function runBatch(options: BatchCliOptions, deps: BatchDeps = {}): 
       }
   }, {
     fetchArtifacts: deps.fetchArtifacts,
-    analyze: deps.analyze
+    fetchPackage: deps.fetchPackage,
+    analyze: deps.analyze,
+    inspectPackage: deps.inspectPackage
   });
   const report: BatchReport = {
     sources: {
@@ -309,6 +371,7 @@ export function parseBatchArgs(args: string[]): BatchCliOptions {
 export function helpText(): string {
   return `Usage:
   sift <name>@<old> <name>@<new> [options]
+  sift inspect <name>@<version> [options]
   sift batch <old-lockfile> <new-lockfile> [options]
 
 Options:
@@ -328,6 +391,26 @@ Options:
 Batch options:
   --detail            Expand analyzed entries in human output
   --concurrency <n>   Batch fetch/analyze parallelism, defaulting to 4
+`;
+}
+
+export function inspectHelpText(): string {
+  return `Usage:
+  sift inspect <name>@<version> [options]
+
+Options:
+  --json              Emit structured JSON
+  --advisories        Add the opt-in OSV.dev advisory sidecar
+  --advisories=summary
+                      Include OSV summary text as third-party passthrough
+  --advisory-endpoint <url>
+                      Query an OSV-compatible advisory endpoint
+  --advisories-allow-public
+                      Allow public OSV lookup with a custom registry
+  --registry <url>    npm registry URL, defaulting to ${DEFAULT_REGISTRY}
+  --keep              Preserve extracted tarballs and temp dirs
+  --help, -h          Show this help
+
 `;
 }
 
@@ -355,6 +438,10 @@ Options:
 }
 
 function withAdvisorySidecar(report: Report, advisorySidecar?: AdvisorySidecar): Report | (Report & { advisorySidecar: AdvisorySidecar }) {
+  return advisorySidecar ? { ...report, advisorySidecar } : report;
+}
+
+function withInspectAdvisorySidecar(report: InspectReport, advisorySidecar?: InspectAdvisorySidecar): InspectReport | (InspectReport & { advisorySidecar: InspectAdvisorySidecar }) {
   return advisorySidecar ? { ...report, advisorySidecar } : report;
 }
 

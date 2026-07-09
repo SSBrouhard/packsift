@@ -1,4 +1,4 @@
-import { Advisory, AdvisorySidecar, AdvisoryVersionResult, BatchReport, FileChange, Report, Signal, SkippedReason } from "./types.js";
+import { Advisory, AdvisorySidecar, AdvisoryVersionResult, BatchReport, FileChange, InspectAdvisorySidecar, InspectReport, Report, Signal, SkippedReason } from "./types.js";
 
 export function formatHuman(report: Report, includeDiffs: boolean, advisorySidecar?: AdvisorySidecar): string {
   const lines: string[] = [];
@@ -49,11 +49,66 @@ export function formatHuman(report: Report, includeDiffs: boolean, advisorySidec
   return `${lines.join("\n")}\n`;
 }
 
+export function formatInspectHuman(report: InspectReport, advisorySidecar?: InspectAdvisorySidecar): string {
+  const lines: string[] = [];
+  lines.push(`sift inspect  ${report.packageName}@${report.version}`);
+  lines.push("");
+  lines.push("-- Package metadata ---------------------");
+  lines.push(`  published: ${report.metadata.publishedAt ?? "unknown"}`);
+  lines.push(`  maintainers: ${report.metadata.maintainerCount ?? "unknown"}`);
+  lines.push(`  versions: ${report.metadata.versionCount ?? "unknown"}`);
+  lines.push(`  files: ${report.files.summary.added}`);
+  lines.push(`  unpacked bytes: ${formatBytes(report.size.bytes)}`);
+  if (report.size.unpackedSize !== undefined) lines.push(`  registry dist.unpackedSize: ${report.size.unpackedSize}`);
+  lines.push("");
+  lines.push("-- Flagged ------------------------------");
+
+  if (report.integrityWarnings.length) {
+    lines.push("  !! Integrity / shasum mismatch");
+    for (const warning of report.integrityWarnings) {
+      lines.push(`     ${warning.version} ${warning.kind}: expected ${shortHash(warning.expected)}, got ${shortHash(warning.actual)}`);
+    }
+  }
+
+  if (report.signals.length === 0) {
+    lines.push("  No notable supply-chain signals.");
+  } else {
+    for (const signal of report.signals) {
+      lines.push(...formatSignal(signal));
+    }
+  }
+
+  lines.push("");
+  lines.push("-- Files --------------------------------");
+  lines.push(`  added    ${report.files.summary.added}`);
+  lines.push(`  removed  ${report.files.summary.removed}`);
+  lines.push(`  changed  ${report.files.summary.changed}`);
+  lines.push("");
+
+  for (const entry of report.files.entries) {
+    lines.push(`  ${statusLetter(entry.status)}  ${entry.path.padEnd(28)} ${formatFileChange(entry)}`);
+  }
+
+  if (advisorySidecar) {
+    lines.push("");
+    lines.push(...formatInspectAdvisorySidecar(advisorySidecar));
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
 export function formatAdvisorySidecar(sidecar: AdvisorySidecar): string[] {
   return [
     `-- Advisory sidecar: ${sidecar.source} fetched ${sidecar.fetchedAt} --`,
     ...formatAdvisoryVersion("old", sidecar.oldVersion),
     ...formatAdvisoryVersion("new", sidecar.newVersion)
+  ];
+}
+
+export function formatInspectAdvisorySidecar(sidecar: InspectAdvisorySidecar): string[] {
+  return [
+    `-- Advisory sidecar: ${sidecar.source} fetched ${sidecar.fetchedAt} --`,
+    ...formatAdvisoryVersion("version", sidecar.version)
   ];
 }
 
@@ -64,6 +119,7 @@ export interface BatchHumanOptions {
 
 export function formatBatchHuman(report: BatchReport, options: BatchHumanOptions = {}): string {
   const lines: string[] = [];
+  const addedEntries = report.added ?? [];
   lines.push("sift batch");
   if (report.sources) {
     lines.push(`old: ${report.sources.old}`);
@@ -71,8 +127,8 @@ export function formatBatchHuman(report: BatchReport, options: BatchHumanOptions
   }
   lines.push("");
   lines.push("-- Analyzed -----------------------------");
-  if (report.analyzed.length === 0) {
-    lines.push("  No analyzed transitions.");
+  if (report.analyzed.length === 0 && addedEntries.length === 0) {
+    lines.push("  No analyzed packages.");
   } else {
     for (const entry of report.analyzed) {
       const summary = entry.report.files.summary;
@@ -85,6 +141,21 @@ export function formatBatchHuman(report: BatchReport, options: BatchHumanOptions
       if (options.detail) {
         lines.push("");
         lines.push(indentBlock(formatHuman(entry.report, options.includeDiffs ?? false, entry.advisorySidecar).trimEnd(), "    "));
+      }
+    }
+  }
+  if (addedEntries.length) {
+    for (const entry of addedEntries) {
+      const summary = entry.report.files.summary;
+      const fileCount = summary.added + summary.removed + summary.changed;
+      const evidence = formatInspectBatchEvidence(entry.report);
+      lines.push(`  ${entry.name}  added (no prior version to compare) -> ${entry.report.version}   ${fileCount} files; ${evidence}`);
+      if (entry.advisorySidecar) {
+        lines.push(`    advisories: ${formatBatchAdvisoryVersion(entry.advisorySidecar.version)} for version`);
+      }
+      if (options.detail) {
+        lines.push("");
+        lines.push(indentBlock(formatInspectHuman(entry.report, entry.advisorySidecar).trimEnd(), "    "));
       }
     }
   }
@@ -124,8 +195,18 @@ function formatBatchEvidence(report: Report): string {
   return parts.join("; ") || "signals: no signals";
 }
 
-function formatAdvisoryVersion(label: "old" | "new", result: AdvisoryVersionResult): string[] {
-  const lines = [`  ${label} version ${result.version}`];
+function formatInspectBatchEvidence(report: InspectReport): string {
+  const parts: string[] = [];
+  const signals = report.signals.map((signal) => signal.id).join(",");
+  if (signals) parts.push(`signals: ${signals}`);
+  if (report.integrityWarnings.length) parts.push(`integrity/shasum mismatches: ${report.integrityWarnings.length}`);
+  parts.push(`size: ${formatBytes(report.size.bytes)}`);
+  return parts.join("; ");
+}
+
+function formatAdvisoryVersion(label: "old" | "new" | "version", result: AdvisoryVersionResult): string[] {
+  const heading = label === "version" ? "version" : `${label} version`;
+  const lines = [`  ${heading} ${result.version}`];
   if (result.unavailable) {
     lines.push(`    advisories unavailable: ${result.unavailable}`);
     return lines;

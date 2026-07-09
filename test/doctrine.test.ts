@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { formatAdvisorySidecar, formatBatchHuman, formatHuman } from "../src/index.js";
-import { type AdvisorySidecar, type BatchReport, type FileChange, type JsonValue, type Report, type Signal } from "../src/types.js";
+import { formatAdvisorySidecar, formatBatchHuman, formatHuman, formatInspectAdvisorySidecar, formatInspectHuman } from "../src/index.js";
+import { type AdvisorySidecar, type BatchReport, type FileChange, type InspectAdvisorySidecar, type InspectReport, type JsonValue, type Report, type Signal } from "../src/types.js";
 
 const hardBanned = [
   "merge",
@@ -48,12 +48,35 @@ function doctrineSubject(report: Report, includeDiffs: boolean): string {
   return formatHuman(redactPackageControlledReport(report), includeDiffs);
 }
 
+function inspectDoctrineSubject(report: InspectReport): string {
+  return formatInspectHuman(redactPackageControlledInspectReport(report));
+}
+
 function redactPackageControlledReport(report: Report): Report {
   return {
     ...report,
     packageName: "<package>",
     oldVersion: "<old-version>",
     newVersion: "<new-version>",
+    integrityWarnings: report.integrityWarnings.map((warning) => ({
+      ...warning,
+      version: "<version>",
+      expected: "<expected>",
+      actual: "<actual>"
+    })),
+    signals: report.signals.map(redactSignal),
+    files: {
+      summary: report.files.summary,
+      entries: report.files.entries.map(redactFileChange)
+    }
+  };
+}
+
+function redactPackageControlledInspectReport(report: InspectReport): InspectReport {
+  return {
+    ...report,
+    packageName: "<package>",
+    version: "<version>",
     integrityWarnings: report.integrityWarnings.map((warning) => ({
       ...warning,
       version: "<version>",
@@ -238,8 +261,10 @@ describe("evidence-never-verdict doctrine", () => {
       doctrineSubject(noSignalsReport, false),
       doctrineSubject(signalCoverageReport, false),
       doctrineSubject(signalCoverageReport, true),
+      inspectDoctrineSubject(inspectCoverageReport),
       batchOutput,
-      formatAdvisorySidecar(advisoryCoverageSidecar).join("\n")
+      formatAdvisorySidecar(advisoryCoverageSidecar).join("\n"),
+      formatInspectAdvisorySidecar(inspectAdvisoryCoverageSidecar).join("\n")
     ];
 
     expect(batchOutput).toContain("old: npm package-lock v3");
@@ -459,6 +484,54 @@ const advisoryCoverageSidecar: AdvisorySidecar = {
   newVersion: { version: "1.0.1", vulns: [], unavailable: "HTTP 500" }
 };
 
+const inspectAdvisoryCoverageSidecar: InspectAdvisorySidecar = {
+  enabled: true,
+  source: "OSV.dev",
+  fetchedAt: "2026-06-23T12:00:00.000Z",
+  version: { version: "1.0.0", vulns: [], unavailable: "HTTP 500" }
+};
+
+const inspectCoverageReport: InspectReport = {
+  mode: "inspect",
+  packageName: "safe",
+  version: "1.0.0",
+  integrityWarnings: [
+    {
+      version: "1.0.0",
+      kind: "integrity",
+      expected: "sha512-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      actual: "sha512-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  signals: signalCoverageReport.signals,
+  files: {
+    summary: { added: 2, removed: 0, changed: 0 },
+    entries: [
+      {
+        path: "urgent.js",
+        status: "added",
+        newSize: 18,
+        newHash: "newhash"
+      },
+      {
+        path: "native/should.node",
+        status: "added",
+        newSize: 2048,
+        newHash: "newnative"
+      }
+    ]
+  },
+  size: {
+    bytes: 2066,
+    unpackedSize: 2066
+  },
+  metadata: {
+    publishedAt: "2026-06-23T12:00:00.000Z",
+    maintainerCount: 1,
+    versionCount: 1
+  }
+};
+
 const batchCoverageReport: BatchReport = {
   sources: {
     old: "npm package-lock v3",
@@ -485,8 +558,19 @@ const batchCoverageReport: BatchReport = {
       }
     }
   ],
+  added: [
+    {
+      kind: "added",
+      name: "added-only",
+      report: {
+        ...redactPackageControlledInspectReport(inspectCoverageReport),
+        packageName: "added-only",
+        version: "1.0.0"
+      },
+      advisorySidecar: inspectAdvisoryCoverageSidecar
+    }
+  ],
   skipped: [
-    { name: "added-only", reason: "added" },
     { name: "multi-copy", reason: "multiple-versions" },
     { name: "gone-only", reason: "removed" }
   ],

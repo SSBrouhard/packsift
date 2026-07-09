@@ -1,6 +1,7 @@
 import { analyze } from "./analyze.js";
-import { buildAdvisorySidecar } from "./advisories.js";
-import { fetchArtifacts, FetchOptions, FetchResult } from "./registry.js";
+import { buildAdvisorySidecar, buildInspectAdvisorySidecar } from "./advisories.js";
+import { inspectPackage } from "./inspect.js";
+import { fetchArtifacts, FetchOptions, FetchResult, fetchPackage } from "./registry.js";
 import {
   Advisory,
   BatchEntry,
@@ -25,7 +26,9 @@ export interface AnalyzeBatchOptions extends FetchOptions {
 
 interface AnalyzeBatchDependencies {
   fetchArtifacts?: typeof fetchArtifacts;
+  fetchPackage?: typeof fetchPackage;
   analyze?: typeof analyze;
+  inspectPackage?: typeof inspectPackage;
 }
 
 const DEFAULT_CONCURRENCY = 4;
@@ -33,6 +36,7 @@ const SORT_LOCALE = "en";
 
 export function classifyTransitions(oldVersions: VersionSetMap, newVersions: VersionSetMap): ClassifiedTransitions {
   const analyzed: Transition[] = [];
+  const analyzedAdded: ClassifiedTransitions["added"] = [];
   const skipped: SkippedEntry[] = [];
   const names = new Set([...oldVersions.keys(), ...newVersions.keys()]);
 
@@ -40,7 +44,11 @@ export function classifyTransitions(oldVersions: VersionSetMap, newVersions: Ver
     const oldSet = oldVersions.get(name);
     const newSet = newVersions.get(name);
     if (!oldSet) {
-      skipped.push({ name, reason: "added" });
+      if (newSet && newSet.size === 1) {
+        analyzedAdded.push({ kind: "added", name, version: singleVersion(newSet) });
+      } else {
+        skipped.push({ name, reason: "multiple-versions" });
+      }
       continue;
     }
     if (!newSet) {
@@ -54,11 +62,12 @@ export function classifyTransitions(oldVersions: VersionSetMap, newVersions: Ver
 
     const oldVersion = singleVersion(oldSet);
     const newVersion = singleVersion(newSet);
-    if (oldVersion !== newVersion) analyzed.push({ name, oldVersion, newVersion });
+    if (oldVersion !== newVersion) analyzed.push({ kind: "transition", name, oldVersion, newVersion });
   }
 
   return {
     analyzed: analyzed.sort(byName),
+    added: analyzedAdded.sort(byName),
     skipped: skipped.sort(byName)
   };
 }
@@ -74,8 +83,11 @@ export async function analyzeBatch(
   }
 
   const analyzeOne = dependencies.analyze ?? analyze;
+  const inspectOne = dependencies.inspectPackage ?? inspectPackage;
   const fetchOne = dependencies.fetchArtifacts ?? fetchArtifacts;
+  const fetchPackageOne = dependencies.fetchPackage ?? fetchPackage;
   const analyzed: BatchEntry[] = [];
+  const added: BatchReport["added"] = [];
   const errors: BatchErrorEntry[] = [];
 
   await runPool(classified.analyzed, concurrency, async (transition) => {
@@ -99,12 +111,36 @@ export async function analyzeBatch(
           },
           { includeDiffs: options.includeDiffs }
         );
-        analyzed.push({ name: transition.name, report });
+        analyzed.push({ kind: "transition", name: transition.name, report });
       } finally {
         await fetched.cleanup();
       }
     } catch (error) {
       errors.push({ name: transition.name, message: messageFor(error) });
+    }
+  });
+
+  await runPool(classified.added ?? [], concurrency, async (entry) => {
+    try {
+      const fetched = await fetchPackageOne(
+        { raw: `${entry.name}@${entry.version}`, name: entry.name, version: entry.version },
+        { registry: options.registry, keep: options.keep }
+      );
+      try {
+        const report = await inspectOne({
+          packageName: entry.name,
+          version: entry.version,
+          packageDir: fetched.artifacts.extractDir,
+          registryManifest: fetched.artifacts.registryManifest,
+          metadata: fetched.metadata,
+          integrityWarnings: fetched.integrityWarnings
+        });
+        added.push({ kind: "added", name: entry.name, report });
+      } finally {
+        await fetched.cleanup();
+      }
+    } catch (error) {
+      errors.push({ name: entry.name, message: messageFor(error) });
     }
   });
 
@@ -119,10 +155,20 @@ export async function analyzeBatch(
         options.advisories!.source
       );
     });
+    await runPool(added, concurrency, async (entry) => {
+      entry.advisorySidecar = await buildInspectAdvisorySidecar(
+        entry.name,
+        entry.report.version,
+        options.advisories!.fetchAdvisories,
+        options.advisories!.now,
+        options.advisories!.source
+      );
+    });
   }
 
   return {
     analyzed: analyzed.sort(byName),
+    added: added.sort(byName),
     skipped: classified.skipped.slice().sort(byName),
     errors: errors.sort(byName)
   };

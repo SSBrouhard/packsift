@@ -4,10 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import * as tar from "tar";
 import { describe, expect, it } from "vitest";
-import { analyze, formatHuman, parsePackageSpec, verifyBytes } from "../src/index.js";
-import { parseArgs, runSingleTransition } from "../src/cli.js";
-import { fetchArtifacts } from "../src/registry.js";
-import { Advisory, PackageManifest, Report } from "../src/types.js";
+import { analyze, formatHuman, formatInspectHuman, inspectPackage, parsePackageSpec, verifyBytes } from "../src/index.js";
+import { inspectHelpText, parseArgs, runInspect, runSingleTransition } from "../src/cli.js";
+import { FetchPackageResult, fetchArtifacts } from "../src/registry.js";
+import { Advisory, InspectReport, PackageManifest, Report } from "../src/types.js";
 
 describe("package specs", () => {
   it("parses scoped package specs from the final @", () => {
@@ -445,6 +445,108 @@ describe("reports", () => {
   });
 });
 
+describe("inspect reports", () => {
+  it("reuses the signal engine for a single package without a baseline", async () => {
+    const report = await runInspectFixture({
+      manifest: {
+        name: "fresh-pkg",
+        version: "1.0.0",
+        scripts: { preinstall: "node install.js" },
+        bin: { fresh: "cli.js" },
+        dependencies: { leftpad: "^1.0.0" }
+      },
+      registryManifest: {
+        name: "fresh-pkg",
+        version: "1.0.0",
+        maintainers: [{ name: "maintainer" }],
+        _npmUser: { name: "publisher" },
+        dist: { unpackedSize: 4096 }
+      },
+      files: {
+        "install.js": "const beacon = 'https://beacon.example/upload'; require('./payload');\n",
+        "payload.js": "module.exports = require('dns');\n",
+        "cli.js": "#!/usr/bin/env node\nconsole.log('cli');\n",
+        "binding.gyp": JSON.stringify({ targets: [{ target_name: "addon", actions: [["node", "build.js"]] }] }),
+        "build.js": "console.log('build');\n",
+        "packed.js": `const x="${"a".repeat(2500)}";`
+      }
+    });
+
+    expect(signalIds(report)).toEqual(expect.arrayContaining([
+      "lifecycle-scripts",
+      "maintainer-publisher",
+      "minified-source",
+      "native-build-config",
+      "install-path-network",
+      "new-bin",
+      "dependency-fields"
+    ]));
+    expect(report.files.summary.added).toBe(7);
+    expect(report.size).toEqual({ bytes: expect.any(Number), unpackedSize: 4096 });
+  });
+
+  it("formats inspect human output with metadata, size, inventory, and advisory sidecar", async () => {
+    const report = await runInspectFixture({
+      manifest: { name: "fresh-pkg", version: "1.0.0", scripts: { postinstall: "node install.js" } },
+      registryManifest: { name: "fresh-pkg", version: "1.0.0", dist: { unpackedSize: 100 } },
+      metadata: { publishedAt: "2026-06-15T00:00:00.000Z", maintainerCount: 2, versionCount: 1 },
+      files: { "install.js": "console.log('install');\n" }
+    });
+
+    const output = formatInspectHuman(report, {
+      enabled: true,
+      source: "OSV.dev",
+      fetchedAt: "2026-06-23T12:00:00.000Z",
+      version: { version: "1.0.0", vulns: [] }
+    });
+
+    expect(output).toContain("sift inspect  fresh-pkg@1.0.0");
+    expect(output).toContain("published: 2026-06-15T00:00:00.000Z");
+    expect(output).toContain("maintainers: 2");
+    expect(output).toContain("versions: 1");
+    expect(output).toContain("unpacked bytes:");
+    expect(output).toContain("A  install.js");
+    expect(output).toContain("version 1.0.0");
+  });
+
+  it("runs inspect CLI JSON and queries advisories for the inspected version only", async () => {
+    const written: string[] = [];
+    const advisoryCalls: string[] = [];
+    await runInspect(parseArgs(["pkg@1.0.0", "--json", "--advisories=summary"]), {
+      fetchPackage: async (spec) => fetchPackageResult(spec.name, spec.version),
+      inspectPackage: async (input) => inspectReportFor(input.packageName, input.version),
+      fetchAdvisories: async (name, version, options) => {
+        advisoryCalls.push(`${name}@${version}`);
+        return [{ id: "ADV-1", aliases: [], summary: options?.includeSummary ? "third-party summary" : undefined, severity: "LOW", affectedRanges: [], references: [] }];
+      },
+      now: () => new Date("2026-06-23T12:00:00.000Z"),
+      write: (text) => written.push(text)
+    });
+
+    const parsed = JSON.parse(written.join("")) as InspectReport & { advisorySidecar: { version: { vulns: Advisory[] } } };
+    expect(parsed.mode).toBe("inspect");
+    expect(parsed.version).toBe("1.0.0");
+    expect(parsed.advisorySidecar.version.vulns[0].summary).toBe("third-party summary");
+    expect(advisoryCalls).toEqual(["pkg@1.0.0"]);
+  });
+
+  it("keeps inspect human output byte-identical across runs", async () => {
+    const fixture = {
+      manifest: { name: "pkg", version: "1.0.0", scripts: { install: "node install.js" } },
+      files: { "install.js": "console.log('install');\n" }
+    };
+
+    const first = formatInspectHuman(await runInspectFixture(fixture));
+    const second = formatInspectHuman(await runInspectFixture(fixture));
+    expect(second).toBe(first);
+  });
+
+  it("documents inspect help", () => {
+    expect(inspectHelpText()).toContain("sift inspect <name>@<version> [options]");
+    expect(inspectHelpText()).toContain("--advisories");
+  });
+});
+
 describe("advisory sidecar rendering and CLI orchestration", () => {
   it("renders old advisory plus empty new version in the target human shape", async () => {
     const report = await run();
@@ -805,11 +907,45 @@ async function run(options: RunOptions = {}): Promise<Report> {
   );
 }
 
+async function runInspectFixture(options: {
+  manifest: PackageManifest;
+  registryManifest?: PackageManifest;
+  metadata?: InspectReport["metadata"];
+  files?: Record<string, string | Buffer>;
+}): Promise<InspectReport> {
+  const root = await mkdtemp(path.join(os.tmpdir(), "sift-test-inspect-"));
+  try {
+    const packageDir = path.join(root, "package");
+    await materialize(packageDir, {
+      "package.json": `${JSON.stringify(options.manifest, null, 2)}\n`,
+      ...(options.files ?? {})
+    });
+    return await inspectPackage({
+      packageName: options.manifest.name ?? "pkg",
+      version: options.manifest.version ?? "1.0.0",
+      packageDir,
+      registryManifest: options.registryManifest ?? options.manifest,
+      metadata: options.metadata
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
 function fetchResult(name: string, oldVersion: string, newVersion: string) {
   return {
     oldArtifacts: { spec: { raw: `${name}@${oldVersion}`, name, version: oldVersion }, registryManifest: { name, version: oldVersion }, tarballPath: "old.tgz", extractDir: "old", integrity: {} },
     newArtifacts: { spec: { raw: `${name}@${newVersion}`, name, version: newVersion }, registryManifest: { name, version: newVersion }, tarballPath: "new.tgz", extractDir: "new", integrity: {} },
     integrityWarnings: [],
+    cleanup: async () => undefined
+  };
+}
+
+function fetchPackageResult(name: string, version: string): FetchPackageResult {
+  return {
+    artifacts: { spec: { raw: `${name}@${version}`, name, version }, registryManifest: { name, version }, tarballPath: "new.tgz", extractDir: "new", integrity: {} },
+    integrityWarnings: [],
+    metadata: { publishedAt: "2026-06-01T00:00:00.000Z", maintainerCount: 1, versionCount: 1 },
     cleanup: async () => undefined
   };
 }
@@ -831,6 +967,22 @@ function reportFor(name: string, oldVersion: string, newVersion: string): Report
       fired: false,
       threshold: "> 2x or > +1 MB"
     }
+  };
+}
+
+function inspectReportFor(name: string, version: string): InspectReport {
+  return {
+    mode: "inspect",
+    packageName: name,
+    version,
+    integrityWarnings: [],
+    signals: [],
+    files: {
+      summary: { added: 1, removed: 0, changed: 0 },
+      entries: [{ path: "index.js", status: "added", newSize: 10 }]
+    },
+    size: { bytes: 10 },
+    metadata: { publishedAt: "2026-06-01T00:00:00.000Z", maintainerCount: 1, versionCount: 1 }
   };
 }
 
@@ -858,7 +1010,7 @@ async function packageTarball(root: string, fileName: string): Promise<Buffer> {
   return readFile(tarballPath);
 }
 
-function signalIds(report: Report): string[] {
+function signalIds(report: Pick<Report, "signals">): string[] {
   return report.signals.map((signal) => signal.id);
 }
 

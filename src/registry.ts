@@ -3,10 +3,12 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import * as tar from "tar";
-import { IntegritySource, IntegrityWarning, PackageManifest, PackageSpec, VersionArtifacts } from "./types.js";
+import { IntegritySource, IntegrityWarning, PackageManifest, PackageMetadataFacts, PackageSpec, VersionArtifacts } from "./types.js";
 
 interface RegistryMetadata {
   versions?: Record<string, PackageManifest>;
+  time?: Record<string, string>;
+  maintainers?: unknown[];
 }
 
 export interface FetchOptions {
@@ -18,6 +20,13 @@ export interface FetchResult {
   oldArtifacts: VersionArtifacts;
   newArtifacts: VersionArtifacts;
   integrityWarnings: IntegrityWarning[];
+  cleanup: () => Promise<void>;
+}
+
+export interface FetchPackageResult {
+  artifacts: VersionArtifacts;
+  integrityWarnings: IntegrityWarning[];
+  metadata: PackageMetadataFacts;
   cleanup: () => Promise<void>;
 }
 
@@ -46,6 +55,36 @@ export async function fetchArtifacts(oldSpec: PackageSpec, newSpec: PackageSpec,
     oldArtifacts,
     newArtifacts,
     integrityWarnings,
+    cleanup: async () => {
+      if (!options.keep) await rm(tempRoot, { recursive: true, force: true });
+    }
+  };
+}
+
+export async function fetchPackage(spec: PackageSpec, options: FetchOptions): Promise<FetchPackageResult> {
+  const metadata = await fetchMetadata(spec.name, options.registry);
+  const manifest = metadata.versions?.[spec.version];
+  if (!manifest) throw new Error(`Version not found in registry metadata: ${spec.name}@${spec.version}`);
+  if (!manifest.dist?.tarball) throw new Error(`Registry metadata has no tarball URL for ${spec.raw}`);
+
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "sift-"));
+  const integrityWarnings: IntegrityWarning[] = [];
+  let artifacts: VersionArtifacts;
+  try {
+    artifacts = await downloadAndExtract(spec, manifest, tempRoot, "new", integrityWarnings);
+  } catch (error) {
+    if (!options.keep) await rm(tempRoot, { recursive: true, force: true });
+    throw error;
+  }
+
+  return {
+    artifacts,
+    integrityWarnings,
+    metadata: {
+      publishedAt: metadata.time?.[spec.version],
+      maintainerCount: Array.isArray(metadata.maintainers) ? metadata.maintainers.length : manifest.maintainers?.length,
+      versionCount: metadata.versions ? Object.keys(metadata.versions).length : undefined
+    },
     cleanup: async () => {
       if (!options.keep) await rm(tempRoot, { recursive: true, force: true });
     }
