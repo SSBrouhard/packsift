@@ -29,6 +29,7 @@ interface AnalyzeBatchDependencies {
 }
 
 const DEFAULT_CONCURRENCY = 4;
+const SORT_LOCALE = "en";
 
 export function classifyTransitions(oldVersions: VersionSetMap, newVersions: VersionSetMap): ClassifiedTransitions {
   const analyzed: Transition[] = [];
@@ -146,7 +147,7 @@ function singleVersion(values: Set<string>): string {
 }
 
 function byName(left: { name: string }, right: { name: string }): number {
-  return left.name.localeCompare(right.name);
+  return left.name.localeCompare(right.name, SORT_LOCALE);
 }
 
 function messageFor(error: unknown): string {

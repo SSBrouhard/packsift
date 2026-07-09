@@ -44,3 +44,8 @@ CI must test Node 20, and `@types/node` should stay on the Node 20 major line un
 
 Keep changes narrow and include tests for behavior changes.
 Documentation-only changes do not need new tests, but they should not drift from CLI behavior.
+
+## Community Standards
+
+By participating, you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+Report suspected vulnerabilities and Code of Conduct incidents through the private path described in [SECURITY.md](SECURITY.md).
