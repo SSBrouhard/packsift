@@ -9,6 +9,7 @@ const NETWORK_TERMS = ["http", "https", "net", "fetch", "child_process", "dns"];
 const SOURCE_EXTENSIONS = new Set([".js", ".ts", ".mjs", ".cjs"]);
 const NATIVE_SOURCE_EXTENSIONS = new Set([".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".hh"]);
 const BUILD_INTERPRETERS = ["node", "python", "python3", "sh", "bash"];
+const SORT_LOCALE = "en";
 
 export interface SignalInput {
   oldRoot: string;
@@ -266,7 +267,7 @@ function matchingTerms(text: string): string[] {
 function changedGypEntries(entries: FileChange[]): FileChange[] {
   return entries
     .filter((entry) => (entry.status === "added" || entry.status === "changed") && isGypFile(entry.path))
-    .sort((a, b) => a.path.localeCompare(b.path));
+    .sort((a, b) => compareStrings(a.path, b.path));
 }
 
 function isGypFile(filePath: string): boolean {
@@ -424,7 +425,11 @@ function uniqueSorted(values: string[]): string[] {
 }
 
 function compareFileEvidence(a: { file: string; expression?: string; command?: string }, b: { file: string; expression?: string; command?: string }): number {
-  return a.file.localeCompare(b.file) || (a.expression ?? a.command ?? "").localeCompare(b.expression ?? b.command ?? "");
+  return compareStrings(a.file, b.file) || compareStrings(a.expression ?? a.command ?? "", b.expression ?? b.command ?? "");
+}
+
+function compareStrings(a: string, b: string): number {
+  return a.localeCompare(b, SORT_LOCALE);
 }
 
 function normalizeBin(bin: PackageManifest["bin"], packageName?: string): Record<string, string> {

@@ -45,8 +45,15 @@ Or run it without installing:
 npx -y @ssbrouhard/sift lodash@4.17.20 lodash@4.17.21
 ```
 
-Releases are published from CI with npm provenance, so published artifacts are
-linked back to the GitHub workflow that built them.
+Releases will be published from CI with npm provenance; the first published
+version will carry a verifiable attestation linking the artifact back to the
+GitHub workflow that built it.
+
+To run from source:
+
+```sh
+npm ci && npm run build && node dist/cli.js <args>
+```
 
 ## Usage
 
