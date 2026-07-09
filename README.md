@@ -4,9 +4,10 @@ Deterministic npm tarball diff CLI with supply-chain tripwires.
 
 `sift` compares published npm package versions by downloading their tarballs,
 hashing the unpacked files, and reporting material differences plus
-deterministic supply-chain-relevant signals. It can compare one package
-transition directly, or compare two npm, yarn, or pnpm lockfiles and run the
-same tarball analysis for changed registry-backed dependencies.
+deterministic supply-chain-relevant signals. It can inspect one published
+package version, compare one package transition directly, or compare two npm,
+yarn, or pnpm lockfiles and run tarball analysis for changed and newly added
+registry-backed dependencies.
 
 ## Doctrine: Evidence, Never Verdict
 
@@ -65,6 +66,12 @@ sift @scope/pkg@1.2.3 @scope/pkg@1.2.4
 sift kysely@0.28.16 kysely@0.28.17 --advisories
 sift kysely@0.28.16 kysely@0.28.17 --advisories=summary
 
+# Inspect one package version.
+sift inspect <name>@<version>
+sift inspect anthropic-toolkit@1.0.0
+sift inspect @aspect-security/argon2@1.0.0 --json
+sift inspect anthropic-toolkit@1.0.0 --advisories
+
 # Compare lockfile transitions.
 sift batch <old-lockfile> <new-lockfile>
 sift batch package-lock.before.json package-lock.json
@@ -76,11 +83,14 @@ sift batch package-lock.before.json package-lock.json --advisories
 Options:
 
 - `--json` emits structured JSON.
-- `--diff` includes full text line diffs for changed text files up to 512 KB.
-  In batch mode, `--diff` requires `--json` unless `--detail` is set.
-- `--advisories` adds an opt-in OSV.dev sidecar for single-package transitions
-  and analyzed batch entries. It queries old and new npm versions, then renders
-  id, aliases, severity, affected ranges, and reference URLs.
+- `--diff` includes full text line diffs for changed text files up to 512 KB
+  in transition reports. In batch mode, `--diff` applies to changed
+  transitions and requires `--json` unless `--detail` is set.
+- `--advisories` adds an opt-in OSV.dev sidecar for inspect mode,
+  single-package transitions, and analyzed batch entries. Inspect mode queries
+  the inspected npm version once. Transition mode queries old and new npm
+  versions. It renders id, aliases, severity, affected ranges, and reference
+  URLs.
 - `--advisories=summary` adds the OSV `summary` field as a labeled third-party
   passthrough line. The default `--advisories` mode omits summary text in both
   human output and JSON.
@@ -98,7 +108,18 @@ Options:
 - `--keep` preserves extracted tarballs and temp dirs for debugging.
 - `--concurrency <n>` sets batch fetch/analyze parallelism, defaulting to 4.
 - `--detail` expands analyzed batch entries in human output to the same
-  per-package report used by single-transition output.
+  per-package report used by single-transition or inspect output.
+
+Inspect mode fetches one npm tarball through the same registry path as
+transition mode, strips the tarball `package/` prefix, hashes raw unpacked file
+bytes, and runs the deterministic signal engine with no baseline. Every file in
+the tarball is treated as added. The report includes lifecycle scripts,
+install-path network indicators, native/GYP payload evidence, `bin` entries,
+minified or obfuscated source heuristics, unpacked size, and a file inventory
+summary. When the registry metadata already fetched for the tarball includes a
+publish timestamp, maintainer list, or versions map, inspect output also reports
+publish date, maintainer count, and version count. It does not perform
+name-similarity or typosquat detection.
 
 Batch mode accepts npm `package-lock.json`/`npm-shrinkwrap.json` v2/v3, yarn
 `yarn.lock` v1/Berry, and `pnpm-lock.yaml` v5.4/v6/v9. Each lockfile argument
@@ -111,8 +132,10 @@ the detected old and new formats, such as `old: npm package-lock v3` and
 Batch mode only considers registry-backed package entries. Linked, aliased,
 file, git, off-registry, and unresolved entries are ignored before transition
 classification. Packages are analyzed when both lockfiles contain exactly one
-version and that version changed. Added-only, removed-only, and multiple-version
-packages are listed as skipped.
+version and that version changed. Added-only packages with exactly one resolved
+version are analyzed with the same single-tarball path as `sift inspect` and
+labeled `added (no prior version to compare)`. Removed-only and
+multiple-version packages are listed as skipped.
 
 The npm package is `@ssbrouhard/sift`; the CLI command is `sift`.
 
@@ -127,21 +150,24 @@ default; `--diff` adds unified diffs. Binary, non-text, or large changed files
 show size-only changes.
 
 Batch human output starts with the detected old/new lockfile formats, then has
-analyzed, skipped, and error sections. Analyzed entries summarize changed file
-counts plus signal and integrity evidence. With `--advisories`, each analyzed
-entry also gets a compact advisory count line; JSON nests the full
-`advisorySidecar` under each analyzed entry. Per-package errors do not stop the
-rest of the batch, but they set the process exit code to 1. Use `sift batch
---json` for structured per-package reports, or `sift batch --detail` for
-expanded human reports.
+analyzed, skipped, and error sections. Transition entries summarize changed file
+counts plus signal and integrity evidence. Added entries summarize file count,
+signals, integrity evidence, and unpacked size. With `--advisories`, each
+analyzed entry also gets a compact advisory count line; JSON nests the full
+`advisorySidecar` under each analyzed transition or added entry. Per-package
+errors do not stop the rest of the batch, but they set the process exit code to
+1. Use `sift batch --json` for structured per-package reports, or `sift batch
+--detail` for expanded human reports.
 
-With `--advisories`, single-transition output adds an `Advisory sidecar` block
-after the files block. Empty OSV results render `none returned`. OSV failures
-are non-fatal: the tarball report still prints, and the affected version says
-`advisories unavailable: <reason>`. JSON includes `advisorySidecar` only when
-the flag is set. The sidecar records `enabled`, `source`, `fetchedAt`,
-`oldVersion`, and `newVersion`; each version records `version`, `vulns`, and
-optional `unavailable`. Summary mode adds `summary` only when OSV provided it.
+With `--advisories`, inspect and single-transition output add an `Advisory
+sidecar` block after the files block. Empty OSV results render `none returned`.
+OSV failures are non-fatal: the tarball report still prints, and the affected
+version says `advisories unavailable: <reason>`. JSON includes
+`advisorySidecar` only when the flag is set. Inspect sidecars record `enabled`,
+`source`, `fetchedAt`, and `version`; transition sidecars record `enabled`,
+`source`, `fetchedAt`, `oldVersion`, and `newVersion`. Each version records
+`version`, `vulns`, and optional `unavailable`. Summary mode adds `summary`
+only when OSV provided it.
 
 Integrity and shasum mismatches are reported as warnings instead of stopping the
 comparison.
@@ -169,9 +195,9 @@ Signals are deterministic tripwires:
 ## Scope
 
 `sift` uses published npm artifacts only, with lockfiles used only to discover
-package transitions for batch analysis. The deterministic core does not clone
-GitHub repositories, call model APIs, ingest advisories into its analysis, score
-risk, comment on PRs, or inspect consumer project source.
+package transitions and added dependencies for batch analysis. The deterministic
+core does not clone GitHub repositories, call model APIs, ingest advisories into
+its analysis, score risk, comment on PRs, or inspect consumer project source.
 
 `--advisories` is a fenced sidecar exception, not part of the analyzer. It calls
 OSV.dev without authentication for requested npm versions only when the registry

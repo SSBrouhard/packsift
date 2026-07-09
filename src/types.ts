@@ -53,6 +53,12 @@ export interface PackageManifest {
   [key: string]: JsonValue | undefined | Maintainer | Maintainer[] | Record<string, string> | { tarball?: string; integrity?: string; shasum?: string; unpackedSize?: number };
 }
 
+export interface PackageMetadataFacts {
+  publishedAt?: string;
+  maintainerCount?: number;
+  versionCount?: number;
+}
+
 export interface Maintainer {
   name?: string;
   email?: string;
@@ -125,6 +131,23 @@ export interface Report {
   sizeDelta: SizeDelta;
 }
 
+export interface InspectReport {
+  mode: "inspect";
+  packageName: string;
+  version: string;
+  integrityWarnings: IntegrityWarning[];
+  signals: Signal[];
+  files: {
+    summary: FileSummary;
+    entries: FileChange[];
+  };
+  size: {
+    bytes: number;
+    unpackedSize?: number;
+  };
+  metadata: PackageMetadataFacts;
+}
+
 export interface Advisory {
   id: string;
   aliases: string[];
@@ -146,6 +169,13 @@ export interface AdvisorySidecar {
   fetchedAt: string;
   oldVersion: AdvisoryVersionResult;
   newVersion: AdvisoryVersionResult;
+}
+
+export interface InspectAdvisorySidecar {
+  enabled: true;
+  source: string;
+  fetchedAt: string;
+  version: AdvisoryVersionResult;
 }
 
 export interface AnalyzeInput {
@@ -175,9 +205,16 @@ export interface ParsedLockfile {
 }
 
 export interface Transition {
+  kind?: "transition";
   name: string;
   oldVersion: string;
   newVersion: string;
+}
+
+export interface AddedDependency {
+  kind: "added";
+  name: string;
+  version: string;
 }
 
 export type SkippedReason = "added" | "removed" | "multiple-versions";
@@ -189,13 +226,22 @@ export interface SkippedEntry {
 
 export interface ClassifiedTransitions {
   analyzed: Transition[];
+  added: AddedDependency[];
   skipped: SkippedEntry[];
 }
 
 export interface BatchEntry {
+  kind?: "transition";
   name: string;
   report: Report;
   advisorySidecar?: AdvisorySidecar;
+}
+
+export interface BatchAddedEntry {
+  kind: "added";
+  name: string;
+  report: InspectReport;
+  advisorySidecar?: InspectAdvisorySidecar;
 }
 
 export interface BatchErrorEntry {
@@ -209,6 +255,7 @@ export interface BatchReport {
     new: string;
   };
   analyzed: BatchEntry[];
+  added?: BatchAddedEntry[];
   skipped: SkippedEntry[];
   errors: BatchErrorEntry[];
 }

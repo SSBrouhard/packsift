@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { analyzeBatch, classifyTransitions, formatBatchHuman } from "../src/index.js";
 import { applyBatchExitCode, batchHelpText, helpText, parseArgs, parseBatchArgs, resolveLockfileArgument, runBatch } from "../src/cli.js";
-import { FetchResult } from "../src/registry.js";
-import { Advisory, ClassifiedTransitions, PackageManifest, Report } from "../src/types.js";
+import { FetchPackageResult, FetchResult } from "../src/registry.js";
+import { Advisory, ClassifiedTransitions, InspectReport, PackageManifest, Report } from "../src/types.js";
 
 describe("batch transition classification", () => {
   it("classifies only single-version differing transitions for analysis", () => {
@@ -20,9 +20,9 @@ describe("batch transition classification", () => {
     });
 
     expect(classifyTransitions(oldVersions, newVersions)).toEqual({
-      analyzed: [{ name: "alpha", oldVersion: "1.0.0", newVersion: "1.0.1" }],
+      analyzed: [{ kind: "transition", name: "alpha", oldVersion: "1.0.0", newVersion: "1.0.1" }],
+      added: [{ kind: "added", name: "delta", version: "1.0.0" }],
       skipped: [
-        { name: "delta", reason: "added" },
         { name: "gamma", reason: "removed" },
         { name: "multi", reason: "multiple-versions" }
       ]
@@ -33,7 +33,8 @@ describe("batch transition classification", () => {
     const classified = classifyTransitions(mapOf({ zebra: ["1"], alpha: ["1"], removed: ["1"] }), mapOf({ zebra: ["2"], alpha: ["2"], added: ["1"] }));
 
     expect(classified.analyzed.map((entry) => entry.name)).toEqual(["alpha", "zebra"]);
-    expect(classified.skipped.map((entry) => entry.name)).toEqual(["added", "removed"]);
+    expect(classified.added.map((entry) => entry.name)).toEqual(["added"]);
+    expect(classified.skipped.map((entry) => entry.name)).toEqual(["removed"]);
   });
 });
 
@@ -68,6 +69,31 @@ describe("batch orchestration", () => {
     expect(maxInFlight).toBeLessThanOrEqual(2);
     expect(report.analyzed.map((entry) => entry.name)).toEqual(["alpha", "middle", "zebra"]);
     expect(report.skipped).toEqual([{ name: "added-only", reason: "added" }]);
+    expect(report.errors).toEqual([]);
+  });
+
+  it("runs added dependencies through single-package inspection", async () => {
+    const report = await analyzeBatch(
+      {
+        analyzed: [],
+        added: [
+          { kind: "added", name: "zebra", version: "1.0.0" },
+          { kind: "added", name: "alpha", version: "2.0.0" }
+        ],
+        skipped: [{ name: "removed-only", reason: "removed" }]
+      },
+      { registry: "https://registry.test", keep: false, concurrency: 2 },
+      {
+        fetchPackage: async (spec, options) => {
+          expect(options.registry).toBe("https://registry.test");
+          return fetchPackageResult(spec.name, spec.version);
+        },
+        inspectPackage: async (input) => inspectReportFor(input.packageName, input.version)
+      }
+    );
+
+    expect(report.added?.map((entry) => `${entry.name}@${entry.report.version}`)).toEqual(["alpha@2.0.0", "zebra@1.0.0"]);
+    expect(report.skipped).toEqual([{ name: "removed-only", reason: "removed" }]);
     expect(report.errors).toEqual([]);
   });
 
@@ -140,6 +166,39 @@ describe("batch orchestration", () => {
     expect(report.analyzed.map((entry) => entry.name)).toEqual(["alpha", "zebra"]);
     expect(report.analyzed.every((entry) => entry.advisorySidecar?.fetchedAt === "2026-06-23T12:00:00.000Z")).toBe(true);
     expect(report.skipped[0]).not.toHaveProperty("advisorySidecar");
+  });
+
+  it("attaches single-version advisory sidecars to added dependencies", async () => {
+    const advisoryCalls: string[] = [];
+    const report = await analyzeBatch(
+      {
+        analyzed: [],
+        added: [{ kind: "added", name: "alpha", version: "1.0.0" }],
+        skipped: []
+      },
+      {
+        registry: "https://registry.test",
+        keep: false,
+        advisories: {
+          fetchAdvisories: async (name, version) => {
+            advisoryCalls.push(`${name}@${version}`);
+            return [{ id: "ADV-1", aliases: [], severity: "LOW", affectedRanges: [], references: [] }];
+          },
+          now: () => new Date("2026-06-23T12:00:00.000Z"),
+          source: "OSV.dev"
+        }
+      },
+      {
+        fetchPackage: async (spec) => fetchPackageResult(spec.name, spec.version),
+        inspectPackage: async (input) => inspectReportFor(input.packageName, input.version)
+      }
+    );
+
+    expect(advisoryCalls).toEqual(["alpha@1.0.0"]);
+    expect(report.added?.[0].advisorySidecar).toMatchObject({
+      fetchedAt: "2026-06-23T12:00:00.000Z",
+      version: { version: "1.0.0", vulns: [{ id: "ADV-1" }] }
+    });
   });
 
   it("keeps batch analysis when one package advisory lookup fails", async () => {
@@ -398,6 +457,16 @@ function fetchResult(name: string, oldVersion: string, newVersion: string): Fetc
   };
 }
 
+function fetchPackageResult(name: string, version: string): FetchPackageResult {
+  const manifest: PackageManifest = { name, version };
+  return {
+    artifacts: { spec: { raw: `${name}@${version}`, name, version }, registryManifest: manifest, tarballPath: "new.tgz", extractDir: "new", integrity: {} },
+    integrityWarnings: [],
+    metadata: { publishedAt: "2026-06-01T00:00:00.000Z", maintainerCount: 1, versionCount: 1 },
+    cleanup: async () => undefined
+  };
+}
+
 function reportFor(name: string, oldVersion: string, newVersion: string): Report {
   return {
     packageName: name,
@@ -415,6 +484,22 @@ function reportFor(name: string, oldVersion: string, newVersion: string): Report
       fired: false,
       threshold: "> 2x or > +1 MB"
     }
+  };
+}
+
+function inspectReportFor(name: string, version: string): InspectReport {
+  return {
+    mode: "inspect",
+    packageName: name,
+    version,
+    integrityWarnings: [],
+    signals: [],
+    files: {
+      summary: { added: 1, removed: 0, changed: 0 },
+      entries: [{ path: "index.js", status: "added", newSize: 10 }]
+    },
+    size: { bytes: 10 },
+    metadata: { publishedAt: "2026-06-01T00:00:00.000Z", maintainerCount: 1, versionCount: 1 }
   };
 }
 
