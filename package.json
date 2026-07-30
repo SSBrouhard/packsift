@@ -10,6 +10,10 @@
     "security"
   ],
   "license": "Apache-2.0",
+  "author": {
+    "name": "Stephen Brouhard",
+    "email": "oss@alderlinesystems.com"
+  },
   "type": "module",
   "repository": {
     "type": "git",
