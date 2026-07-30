@@ -29,7 +29,10 @@ describe("published package contract", () => {
       packsift: "dist/cli.js",
       sift: "dist/cli.js"
     });
-    expect(builtCli.mode & 0o111).not.toBe(0);
+    expect(builtCli.isFile()).toBe(true);
+    if (process.platform !== "win32") {
+      expect(builtCli.mode & 0o111).not.toBe(0);
+    }
     expect(cli).toBeDefined();
     expect(cli!.mode & 0o111).not.toBe(0);
   });
