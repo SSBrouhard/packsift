@@ -6,9 +6,28 @@ import * as tar from "tar";
 import { IntegritySource, IntegrityWarning, PackageManifest, PackageMetadataFacts, PackageSpec, VersionArtifacts } from "./types.js";
 
 interface RegistryMetadata {
+  "dist-tags"?: Record<string, string>;
   versions?: Record<string, PackageManifest>;
   time?: Record<string, string>;
   maintainers?: unknown[];
+}
+
+export async function resolvePublishedVersion(name: string, registry: string, tag = "latest"): Promise<string> {
+  let metadata: RegistryMetadata;
+  try {
+    metadata = await fetchMetadata(name, registry);
+  } catch (error) {
+    throw new Error(`Could not resolve a published ${tag} baseline for ${name}: ${errorMessage(error)}`);
+  }
+  const version = metadata["dist-tags"]?.[tag];
+  if (!version || !metadata.versions?.[version]) {
+    throw new Error(`Package has no published ${tag} version on the configured registry: ${name}`);
+  }
+  return version;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export interface FetchOptions {
@@ -123,13 +142,7 @@ async function downloadAndExtract(
   warnings.push(...verifyBytes(spec.version, bytes, integrity));
 
   const extractDir = path.join(tempRoot, label);
-  await mkdir(extractDir, { recursive: true });
-  await tar.x({
-    file: tarballPath,
-    cwd: extractDir,
-    strip: 1,
-    filter: (entryPath: string) => entryPath === "package" || entryPath.startsWith("package/")
-  });
+  await extractPackageTarball(tarballPath, extractDir);
 
   return {
     spec,
@@ -138,6 +151,16 @@ async function downloadAndExtract(
     extractDir,
     integrity
   };
+}
+
+export async function extractPackageTarball(tarballPath: string, extractDir: string): Promise<void> {
+  await mkdir(extractDir, { recursive: true });
+  await tar.x({
+    file: tarballPath,
+    cwd: extractDir,
+    strip: 1,
+    filter: (entryPath: string) => entryPath === "package" || entryPath.startsWith("package/")
+  });
 }
 
 export function verifyBytes(version: string, bytes: Buffer, source: IntegritySource): IntegrityWarning[] {

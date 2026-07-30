@@ -186,6 +186,7 @@ export interface AnalyzeInput {
   newDir: string;
   oldRegistryManifest: PackageManifest;
   newRegistryManifest: PackageManifest;
+  includeRegistryMetadataSignals?: boolean;
   integrityWarnings?: IntegrityWarning[];
 }
 

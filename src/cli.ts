@@ -9,8 +9,9 @@ import { advisorySource, buildAdvisorySidecar, buildInspectAdvisorySidecar, fetc
 import { analyzeBatch, classifyTransitions } from "./batch.js";
 import { formatBatchHuman, formatHuman, formatInspectHuman } from "./format.js";
 import { inspectPackage } from "./inspect.js";
+import { prepareLocalPackage } from "./local-pack.js";
 import { parseLockfileContent } from "./lockfile.js";
-import { fetchArtifacts, fetchPackage } from "./registry.js";
+import { fetchArtifacts, fetchPackage, resolvePublishedVersion } from "./registry.js";
 import { assertSamePackage, parsePackageSpec } from "./spec.js";
 import { type AdvisorySidecar, type BatchReport, type InspectAdvisorySidecar, type InspectReport, type Report } from "./types.js";
 
@@ -35,6 +36,11 @@ export interface BatchCliOptions extends CliOptions {
   newLockfile: string;
 }
 
+export interface PackCheckCliOptions extends CliOptions {
+  against?: string;
+  input: string;
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   if (isHelpRequest(argv)) {
@@ -57,6 +63,14 @@ async function main(): Promise<void> {
     await runInspect(parseArgs(argv.slice(1)));
     return;
   }
+  if (argv[0] === "pack-check") {
+    if (isHelpRequest(argv.slice(1))) {
+      process.stdout.write(packCheckHelpText());
+      return;
+    }
+    await runPackCheck(parsePackCheckArgs(argv.slice(1)));
+    return;
+  }
 
   const options = parseArgs(argv);
   await runSingleTransition(options);
@@ -75,6 +89,14 @@ interface InspectDeps {
   inspectPackage?: typeof inspectPackage;
   fetchAdvisories?: typeof fetchAdvisories;
   now?: () => Date;
+  write?: (text: string) => void;
+}
+
+interface PackCheckDeps {
+  prepareLocalPackage?: typeof prepareLocalPackage;
+  resolvePublishedVersion?: typeof resolvePublishedVersion;
+  fetchPackage?: typeof fetchPackage;
+  analyze?: typeof analyze;
   write?: (text: string) => void;
 }
 
@@ -166,6 +188,61 @@ export async function runInspect(options: CliOptions, deps: InspectDeps = {}): P
     }
   } finally {
     await fetched.cleanup();
+  }
+}
+
+export async function runPackCheck(options: PackCheckCliOptions, deps: PackCheckDeps = {}): Promise<void> {
+  if (options.advisories !== "off") {
+    throw new Error("packsift pack-check does not support --advisories because the local package version is not a published registry coordinate");
+  }
+
+  const prepareLocalPackageImpl = deps.prepareLocalPackage ?? prepareLocalPackage;
+  const resolvePublishedVersionImpl = deps.resolvePublishedVersion ?? resolvePublishedVersion;
+  const fetchPackageImpl = deps.fetchPackage ?? fetchPackage;
+  const analyzeImpl = deps.analyze ?? analyze;
+  const write = deps.write ?? ((text: string) => process.stdout.write(text));
+  const local = await prepareLocalPackageImpl(options.input, { keep: options.keep });
+  try {
+    if (options.against === "none") {
+      throw new Error("packsift pack-check requires a published registry baseline; --against none is not supported");
+    }
+    const oldSpec = options.against
+      ? parsePackageSpec(options.against)
+      : {
+        raw: `${local.manifest.name}@latest`,
+        name: local.manifest.name,
+        version: await resolvePublishedVersionImpl(local.manifest.name, options.registry)
+      };
+    if (oldSpec.name !== local.manifest.name) {
+      throw new Error(`Package names differ: ${oldSpec.name} vs ${local.manifest.name}`);
+    }
+
+    const fetched = await fetchPackageImpl(oldSpec, { registry: options.registry, keep: options.keep });
+    try {
+      const report = await analyzeImpl(
+        {
+          packageName: local.manifest.name,
+          oldVersion: oldSpec.version,
+          newVersion: local.manifest.version,
+          oldDir: fetched.artifacts.extractDir,
+          newDir: local.extractDir,
+          oldRegistryManifest: fetched.artifacts.registryManifest,
+          newRegistryManifest: local.manifest,
+          includeRegistryMetadataSignals: false,
+          integrityWarnings: fetched.integrityWarnings
+        },
+        { includeDiffs: options.diff }
+      );
+      if (options.json) {
+        write(`${JSON.stringify(report, null, 2)}\n`);
+      } else {
+        write(formatHuman(report, options.diff));
+      }
+    } finally {
+      await fetched.cleanup();
+    }
+  } finally {
+    await local.cleanup();
   }
 }
 
@@ -368,9 +445,35 @@ export function parseBatchArgs(args: string[]): BatchCliOptions {
   };
 }
 
+export function parsePackCheckArgs(args: string[]): PackCheckCliOptions {
+  let against: string | undefined;
+  const commonArgs: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--against") {
+      const value = args[index + 1];
+      if (!value) throw new Error("--against requires <name>@<version>");
+      against = value;
+      index += 1;
+    } else {
+      commonArgs.push(arg);
+    }
+  }
+  const options = parseArgs(commonArgs);
+  if (options.positionals.length > 1) {
+    throw new Error("Expected at most one local package input: packsift pack-check [dir-or-tgz]");
+  }
+  return {
+    ...options,
+    against,
+    input: options.positionals[0] ?? "."
+  };
+}
+
 export function helpText(): string {
   return `Usage:
   packsift <name>@<old> <name>@<new> [options]
+  packsift pack-check [dir-or-tgz] [--against <name>@<version>] [options]
   packsift inspect <name>@<version> [options]
   packsift batch <old-lockfile> <new-lockfile> [options]
 
@@ -391,6 +494,29 @@ Options:
 Batch options:
   --detail            Expand analyzed entries in human output
   --concurrency <n>   Batch fetch/analyze parallelism, defaulting to 4
+`;
+}
+
+export function packCheckHelpText(): string {
+  return `Usage:
+  packsift pack-check [dir-or-tgz] [--against <name>@<version>] [options]
+
+Packs a directory with npm pack, or reads an existing .tgz, then compares it
+with the selected published version. Without --against, the package name is
+read from the packed package.json and the registry's latest version is used.
+
+Options:
+  --against <name>@<version>
+                      Published registry baseline; defaults to latest
+  --json              Emit structured JSON
+  --diff              Include full text diffs for changed files
+  --registry <url>    npm registry URL, defaulting to ${DEFAULT_REGISTRY}
+  --keep              Preserve extracted tarballs and temp dirs
+  --help, -h          Show this help
+
+Advisory flags are not supported because the local side is not a published
+registry coordinate.
+
 `;
 }
 

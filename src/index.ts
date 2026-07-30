@@ -2,10 +2,11 @@ export { analyze } from "./analyze.js";
 export { fetchAdvisories } from "./advisories.js";
 export { analyzeBatch, classifyTransitions } from "./batch.js";
 export { inspectPackage } from "./inspect.js";
+export { prepareLocalPackage } from "./local-pack.js";
 export { formatAdvisorySidecar, formatBatchHuman, formatHuman, formatInspectAdvisorySidecar, formatInspectHuman } from "./format.js";
 export { parseLockfile, parseLockfileAuto, parseLockfileContent, parseLockfileData, packageNameFromLockPath } from "./lockfile.js";
 export { parsePackageSpec, assertSamePackage } from "./spec.js";
-export { verifyBytes } from "./registry.js";
+export { extractPackageTarball, resolvePublishedVersion, verifyBytes } from "./registry.js";
 export type {
   AnalyzeInput,
   AnalyzeOptions,

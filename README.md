@@ -2,9 +2,10 @@
 
 **Your Git diff is not your npm release.**
 
-PackSift compares the published npm tarballs users actually install. It reports
-unexpected files, lifecycle scripts, native binaries, install-path network code,
-and other supply-chain drift with deterministic evidence instead of a verdict.
+PackSift compares the npm tarballs users actually install, including a local
+package just before publication. It reports unexpected files, lifecycle
+scripts, native binaries, install-path network code, and other supply-chain
+drift with deterministic evidence instead of a verdict.
 
 Install it and compare two published releases:
 
@@ -19,7 +20,9 @@ packsift lodash@4.17.20 lodash@4.17.21
 
 PackSift can also inspect one published package version or compare two npm,
 yarn, or pnpm lockfiles and run tarball analysis for changed and newly added
-registry-backed dependencies.
+registry-backed dependencies. `packsift pack-check` compares the exact output of
+`npm pack` (or an existing `.tgz`) with a previously published version for
+pre-publish gates.
 
 ## Doctrine: Evidence, Never Verdict
 
@@ -79,6 +82,12 @@ packsift @scope/pkg@1.2.3 @scope/pkg@1.2.4
 packsift kysely@0.28.16 kysely@0.28.17 --advisories
 packsift kysely@0.28.16 kysely@0.28.17 --advisories=summary
 
+# Compare a local package about to publish with its latest published version.
+packsift pack-check
+packsift pack-check path/to/package
+packsift pack-check path/to/package.tgz --against @scope/pkg@1.2.3
+packsift pack-check . --json --diff
+
 # Inspect one package version.
 packsift inspect <name>@<version>
 packsift inspect anthropic-toolkit@1.0.0
@@ -103,7 +112,8 @@ Options:
   single-package transitions, and analyzed batch entries. Inspect mode queries
   the inspected npm version once. Transition mode queries old and new npm
   versions. It renders id, aliases, severity, affected ranges, and reference
-  URLs.
+  URLs. Advisory flags are not supported by `pack-check`: its local side is not
+  a published registry coordinate, so querying it would be misleading.
 - `--advisories=summary` adds the OSV `summary` field as a labeled third-party
   passthrough line. The default `--advisories` mode omits summary text in both
   human output and JSON.
@@ -122,6 +132,21 @@ Options:
 - `--concurrency <n>` sets batch fetch/analyze parallelism, defaulting to 4.
 - `--detail` expands analyzed batch entries in human output to the same
   per-package report used by single-transition or inspect output.
+
+`packsift pack-check [dir-or-tgz]` uses `.` when no input is given. For a
+directory, it runs `npm pack` with normal npm lifecycle behavior and compares
+the resulting tarball—not the working tree. An existing `.tgz` is used as-is.
+The local package name and version come from the packed `package.json`.
+`--against <name>@<version>` selects the published baseline; without it,
+PackSift resolves the package's `latest` dist-tag from `--registry`. A missing
+published baseline is an error, and `--against none` is not supported.
+
+Both sides use the same `package/` prefix stripping, raw-byte hashing, file
+diff, and signal engine as published-to-published transitions. Registry
+integrity and shasum verification applies only to the published baseline.
+Publisher and maintainer change evidence is omitted because equivalent
+registry metadata does not exist for the unpublished local side. `--json`,
+`--diff`, `--registry`, and `--keep` work as in transition mode.
 
 Inspect mode fetches one npm tarball through the same registry path as
 transition mode, strips the tarball `package/` prefix, hashes raw unpacked file
@@ -211,10 +236,11 @@ Signals are deterministic tripwires:
 
 ## Scope
 
-PackSift uses published npm artifacts only, with lockfiles used only to discover
-package transitions and added dependencies for batch analysis. The deterministic
-core does not clone GitHub repositories, call model APIs, ingest advisories into
-its analysis, score risk, comment on PRs, or inspect consumer project source.
+PackSift uses published npm artifacts plus an explicitly supplied local packed
+artifact in `pack-check`; lockfiles are used only to discover package transitions
+and added dependencies for batch analysis. The deterministic core does not clone
+GitHub repositories, call model APIs, ingest advisories into its analysis, score
+risk, comment on PRs, or inspect consumer project source.
 
 `--advisories` is a fenced sidecar exception, not part of the analyzer. It calls
 OSV.dev without authentication for requested npm versions only when the registry
