@@ -162,6 +162,25 @@ describe("no-mistakes PackSift helper", () => {
     ]);
   });
 
+  it("emits JSON usage envelopes for malformed arguments", async () => {
+    const fixture = await createFixture();
+    const cases = [
+      [["--json", "--base"], "PackSift evidence error: --base requires a git ref"],
+      [["--json", "--unknown"], "PackSift evidence error: unknown option: --unknown"],
+      [["--json", "extra"], "PackSift evidence error: unexpected argument: extra"],
+    ] as const;
+
+    for (const [args, message] of cases) {
+      const result = runHelper(fixture, [...args]);
+      const envelope = JSON.parse(result.stdout);
+
+      expect(result.status).toBe(2);
+      expect(envelope.errors).toEqual([{ type: "usage", exitCode: 2, message }]);
+      expect(result.stdout).not.toContain("Usage:");
+      expect(result.stderr).toContain("Usage:");
+    }
+  });
+
   it("emits an envelope for removed inputs in JSON mode", async () => {
     const fixture = await createFixture();
     await rm(path.join(fixture.repo, "package-lock.json"));

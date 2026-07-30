@@ -27,55 +27,12 @@ release_input=""
 json_tmp_dir=""
 json_result_count=0
 
-if [ "${1:-}" = "dependencies" ] || [ "${1:-}" = "release" ]; then
-  mode="$1"
-  shift
-fi
-
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    --base)
-      if [ "$#" -lt 2 ]; then
-        echo "PackSift evidence error: --base requires a git ref" >&2
-        usage >&2
-        exit 2
-      fi
-      base_ref="$2"
-      shift 2
-      ;;
-    --json)
-      json_flag="--json"
-      shift
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    -*)
-      echo "PackSift evidence error: unknown option: $1" >&2
-      usage >&2
-      exit 2
-      ;;
-    *)
-      if [ "$mode" != "release" ] || [ -n "$release_input" ]; then
-        echo "PackSift evidence error: unexpected argument: $1" >&2
-        usage >&2
-        exit 2
-      fi
-      release_input="$1"
-      shift
-      ;;
-  esac
-done
-
-run_packsift() {
-  if [ -n "$json_flag" ]; then
-    json_result_count=$((json_result_count + 1))
-    "$packsift_bin" "$@" "$json_flag" > "$json_tmp_dir/result.$json_result_count"
-  else
-    "$packsift_bin" "$@"
+for argument do
+  if [ "$argument" = "--json" ]; then
+    json_flag="--json"
+    break
   fi
-}
+done
 
 if [ -n "$json_flag" ]; then
   json_tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/packsift-no-mistakes.XXXXXX") || {
@@ -144,6 +101,17 @@ fail_with_error() {
   exit "$status"
 }
 
+fail_with_usage() {
+  status="$1"
+  error_message="$2"
+  echo "$error_message" >&2
+  usage >&2
+  if [ -n "$json_flag" ]; then
+    emit_json_envelope "$status" usage "$error_message"
+  fi
+  exit "$status"
+}
+
 record_json_event() {
   if [ -n "$json_flag" ]; then
     printf '%s\t%s\t%s\n' "${1:-}" "${2:-}" "${3:-}" >> "$json_tmp_dir/events"
@@ -155,6 +123,56 @@ announce() {
     echo "$@" >&2
   else
     echo "$@"
+  fi
+}
+
+if [ "${1:-}" = "dependencies" ] || [ "${1:-}" = "release" ]; then
+  mode="$1"
+  shift
+fi
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --base)
+      if [ "$#" -lt 2 ]; then
+        fail_with_usage 2 "PackSift evidence error: --base requires a git ref"
+      fi
+      base_ref="$2"
+      shift 2
+      ;;
+    --json)
+      json_flag="--json"
+      shift
+      ;;
+    -h|--help)
+      if [ -n "$json_flag" ]; then
+        usage >&2
+        record_json_event help
+        emit_json_envelope 0
+      else
+        usage
+      fi
+      exit 0
+      ;;
+    -*)
+      fail_with_usage 2 "PackSift evidence error: unknown option: $1"
+      ;;
+    *)
+      if [ "$mode" != "release" ] || [ -n "$release_input" ]; then
+        fail_with_usage 2 "PackSift evidence error: unexpected argument: $1"
+      fi
+      release_input="$1"
+      shift
+      ;;
+  esac
+done
+
+run_packsift() {
+  if [ -n "$json_flag" ]; then
+    json_result_count=$((json_result_count + 1))
+    "$packsift_bin" "$@" "$json_flag" > "$json_tmp_dir/result.$json_result_count"
+  else
+    "$packsift_bin" "$@"
   fi
 }
 
