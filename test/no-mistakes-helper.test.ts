@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -135,6 +135,33 @@ describe("no-mistakes PackSift helper", () => {
     expect(failedEnvelope.errors).toEqual([{ type: "packsift", exitCode: 7 }]);
   });
 
+  it("emits JSON for git failures and records workspace manifests beside batches", async () => {
+    const invalidBaseFixture = await createFixture();
+    const invalidBaseResult = runHelper(invalidBaseFixture, ["--base", "missing", "--json"]);
+    const invalidBaseEnvelope = JSON.parse(invalidBaseResult.stdout);
+
+    expect(invalidBaseResult.status).toBe(2);
+    expect(invalidBaseEnvelope.errors).toEqual([
+      {
+        type: "git",
+        exitCode: 2,
+        message: "PackSift evidence error: cannot resolve base ref 'missing' or 'origin/missing'",
+      },
+    ]);
+
+    const workspaceFixture = await createFixture("package-lock.json", 0, ["packages/foo/package.json"]);
+    await writeFile(path.join(workspaceFixture.repo, "packages/foo/package.json"), '{"name":"foo","version":"1.0.1"}\n');
+    await writeFile(path.join(workspaceFixture.repo, "package-lock.json"), lockfile("2.0.0"));
+    const workspaceResult = runHelper(workspaceFixture, ["--base", "main", "--json"]);
+    const workspaceEnvelope = JSON.parse(workspaceResult.stdout);
+
+    expect(workspaceResult.status).toBe(0);
+    expect(workspaceEnvelope.events).toEqual([
+      { type: "package-json-changed", path: "packages/foo/package.json" },
+      { type: "batch", path: "package-lock.json", base: expect.any(String) },
+    ]);
+  });
+
   it("emits an envelope for removed inputs in JSON mode", async () => {
     const fixture = await createFixture();
     await rm(path.join(fixture.repo, "package-lock.json"));
@@ -194,6 +221,7 @@ describe("no-mistakes PackSift helper", () => {
 async function createFixture(
   lockfileNames: string | string[] = "package-lock.json",
   exitCode = 0,
+  packageJsonPaths: string[] = [],
 ): Promise<{ repo: string; bin: string; log: string }> {
   const repo = await mkdtemp(path.join(os.tmpdir(), "packsift-no-mistakes-"));
   tempRoots.push(repo);
@@ -202,6 +230,11 @@ async function createFixture(
   const names = Array.isArray(lockfileNames) ? lockfileNames : [lockfileNames];
 
   await writeFile(path.join(repo, "package.json"), '{"name":"fixture","version":"1.0.0"}\n');
+  for (const packageJsonPath of packageJsonPaths) {
+    const fullPath = path.join(repo, packageJsonPath);
+    await mkdir(path.dirname(fullPath), { recursive: true });
+    await writeFile(fullPath, '{"name":"foo","version":"1.0.0"}\n');
+  }
   for (const name of names) {
     await writeFile(path.join(repo, name), lockfile("1.0.0"));
   }
