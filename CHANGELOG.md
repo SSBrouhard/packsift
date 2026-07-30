@@ -4,12 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-- Rename the npm package to `@ssbrouhard/packsift` and make `packsift` the canonical CLI command, while retaining `sift` as a temporary compatibility alias for one release.
-- Add `packsift inspect <pkg@version>` for deterministic single-tarball evidence reports, including package metadata facts already present in registry metadata and opt-in single-version advisory sidecars.
-- Analyze added batch dependencies through the inspect path and label them as `added (no prior version to compare)` while keeping removed dependencies skipped.
+## 0.1.1 - 2026-07-30
+
+- Publish the source repository at `https://github.com/SSBrouhard/packsift` and correct npm package metadata for the renamed public project.
+- Remove the one-release `sift` CLI compatibility alias; `packsift` is now the only installed command.
+- Make tag-triggered publishing idempotent by skipping versions already present on npm while preserving provenance publishing for new versions.
 
 ## 0.1.0
 
+- Rename the npm package to `@ssbrouhard/packsift` and make `packsift` the canonical CLI command, while retaining `sift` as a temporary compatibility alias for one release.
+- Add `packsift inspect <pkg@version>` for deterministic single-tarball evidence reports, including package metadata facts already present in registry metadata and opt-in single-version advisory sidecars.
+- Analyze added batch dependencies through the inspect path and label them as `added (no prior version to compare)` while keeping removed dependencies skipped.
 - Initial public CLI for deterministic npm tarball comparison.
 - Added supply-chain tripwires for lifecycle scripts, maintainer changes, native payloads, minified source, install-path network code, binary entries, unpacked size growth, dependency-field changes, license changes, native GYP build configuration, and GYP-seeded install-path network evidence.
 - Added package-lock batch analysis.

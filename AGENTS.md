@@ -6,7 +6,8 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 
 ## Project Notes
 
-- Package name is `@ssbrouhard/packsift`; `packsift` is the canonical CLI command and `sift` is a temporary one-release compatibility alias.
+- Package name is `@ssbrouhard/packsift`; `packsift` is the only CLI command as of 0.1.1, while 0.1.0 alone included a one-release `sift` compatibility alias.
+- The public repository is `https://github.com/SSBrouhard/packsift`; the former `SSBrouhard/sift` URL redirects after the repository rename.
 - Product scope is published npm tarballs, with npm/yarn/pnpm lockfiles used only to discover changed and added dependencies for batch analysis: no GitHub cloning/API calls, model calls, risk scores, verdicts, or recommendations in the deterministic core.
 - `--advisories` is the explicit opt-in sidecar exception: single-transition, inspect, and analyzed batch entries only, networked OSV.dev-compatible `/v1/query`, no authentication, timestamped, non-deterministic at query time, structured fields by default, optional third-party OSV summary passthrough with `--advisories=summary`, outside `analyze`, and only allowed with custom registries when `--advisory-endpoint` points at a private mirror or `--advisories-allow-public` explicitly permits public OSV.dev.
 - Runtime support starts at Node.js 20.

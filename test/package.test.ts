@@ -9,7 +9,7 @@ interface PackDryRun {
 }
 
 describe("published package contract", () => {
-  it("keeps both CLI bins in the dry-run package", async () => {
+  it("ships only the canonical PackSift CLI bin in the dry-run package", async () => {
     const root = path.dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
     const manifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8")) as {
       bin?: Record<string, string>;
@@ -26,8 +26,7 @@ describe("published package contract", () => {
     const builtCli = await stat(path.join(root, "dist/cli.js"));
 
     expect(manifest.bin).toEqual({
-      packsift: "dist/cli.js",
-      sift: "dist/cli.js"
+      packsift: "dist/cli.js"
     });
     expect(builtCli.isFile()).toBe(true);
     if (process.platform !== "win32") {

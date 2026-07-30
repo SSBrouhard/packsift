@@ -1,6 +1,6 @@
 {
   "name": "@ssbrouhard/packsift",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Deterministic npm tarball diff CLI with supply-chain tripwires.",
   "keywords": [
     "npm",
@@ -17,18 +17,17 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/SSBrouhard/sift.git"
+    "url": "git+https://github.com/SSBrouhard/packsift.git"
   },
   "bugs": {
-    "url": "https://github.com/SSBrouhard/sift/issues"
+    "url": "https://github.com/SSBrouhard/packsift/issues"
   },
-  "homepage": "https://github.com/SSBrouhard/sift#readme",
+  "homepage": "https://github.com/SSBrouhard/packsift#readme",
   "publishConfig": {
     "access": "public"
   },
   "bin": {
-    "packsift": "dist/cli.js",
-    "sift": "dist/cli.js"
+    "packsift": "dist/cli.js"
   },
   "files": [
     "dist",
