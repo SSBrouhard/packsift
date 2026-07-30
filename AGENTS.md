@@ -21,3 +21,10 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 - Batch mode parses npm package-lock/npm-shrinkwrap v2/v3, yarn.lock v1/Berry, and pnpm-lock.yaml v5.4/v6/v9; it accepts working-tree paths, `<ref>:<path>`, and one stdin side, labels the detected old/new formats in every output, ignores non-registry/link/alias/off-registry entries, analyzes changed single-version transitions and single-version added dependencies, and skips removed or multiple-version packages.
 - `sift inspect <pkg@version>` is the baseline-less single-tarball path: fetch one registry tarball, treat every unpacked file as added, run the shared signal engine, include registry metadata facts already present in the fetched package metadata, and query advisories only for that one version when opted in.
 - Evidence-never-verdict enforcement belongs on sift-authored human/advisory formatters (`formatHuman`, `formatInspectHuman`, `formatBatchHuman`, `formatAdvisorySidecar`, and `formatInspectAdvisorySidecar`) only; docs, fixture package/user/registry data, and third-party advisory passthrough may mention doctrine vocabulary without failing the invariant.
+
+## Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+Prefer rewriting or pruning existing entries over appending new ones.
+When updating this file, preserve this bar for all agents and keep entries concise.
