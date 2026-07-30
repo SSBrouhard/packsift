@@ -126,9 +126,10 @@ guessing a package transition; supply a published old/new pair when one is
 known. Release mode runs `packsift pack-check`.
 
 The helper writes evidence to stdout and returns zero when checks complete,
-regardless of reported drift. It returns non-zero only for usage, git/base
-resolution, or PackSift execution failures. Set `PACKSIFT_BIN` to select a
-PackSift executable and `PACKSIFT_BASE_REF` to override the fallback base.
+regardless of reported drift. It returns non-zero only for usage, helper
+setup/I/O, git/base resolution, or PackSift execution failures; reported
+package drift never causes a failure. Set `PACKSIFT_BIN` to select a PackSift
+executable and `PACKSIFT_BASE_REF` to override the fallback base.
 With `--json`, stdout contains one envelope with structured events and all
 PackSift result documents, including when no comparable lockfile exists or
 multiple lockfiles changed; helper status text remains on stderr.
