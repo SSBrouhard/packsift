@@ -27,8 +27,8 @@
     "access": "public"
   },
   "bin": {
-    "packsift": "./dist/cli.js",
-    "sift": "./dist/cli.js"
+    "packsift": "dist/cli.js",
+    "sift": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -38,7 +38,8 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\"",
+    "pretest": "npm run build",
     "prepack": "npm run build",
     "prepublishOnly": "npm run typecheck && npm test",
     "test": "vitest run",
