@@ -21,7 +21,12 @@ describe("no-mistakes PackSift helper", () => {
     const result = runHelper(fixture, ["--base", "main", "--json"]);
 
     expect(result.status).toBe(0);
-    expect(JSON.parse(result.stdout)).toEqual({ fixture: "evidence" });
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      mode: "dependencies",
+      results: [{ fixture: "evidence" }],
+      events: [{ type: "batch", path: "package-lock.json" }],
+      errors: [],
+    });
     expect(result.stderr).toContain("PackSift dependency evidence: batch");
     expect(await readFile(fixture.log, "utf8")).toMatch(
       /^batch [0-9a-f]+:package-lock\.json package-lock\.json --json\n$/,
@@ -58,9 +63,92 @@ describe("no-mistakes PackSift helper", () => {
     const result = runHelper(fixture, ["release", ".", "--json"]);
 
     expect(result.status).toBe(0);
-    expect(JSON.parse(result.stdout)).toEqual({ fixture: "evidence" });
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      mode: "release",
+      input: ".",
+      results: [{ fixture: "evidence" }],
+      events: [{ type: "pre-publish", path: "." }],
+      errors: [],
+    });
     expect(result.stderr).toContain("PackSift pre-publish evidence: pack-check .");
     expect(await readFile(fixture.log, "utf8")).toBe("pack-check . --json\n");
+  });
+
+  it("emits one JSON envelope for no-op and multiple-lockfile paths", async () => {
+    const noOpFixture = await createFixture();
+    const noOpResult = runHelper(noOpFixture, ["--base", "main", "--json"]);
+    const noOpEnvelope = JSON.parse(noOpResult.stdout);
+
+    expect(noOpResult.status).toBe(0);
+    expect(noOpEnvelope).toMatchObject({
+      mode: "dependencies",
+      results: [],
+      events: [{ type: "no-changes" }],
+      errors: [],
+    });
+
+    const packageFixture = await createFixture();
+    await writeFile(path.join(packageFixture.repo, "package.json"), '{"name":"fixture","dependencies":{"left-pad":"1.3.0"}}\n');
+    const packageResult = runHelper(packageFixture, ["--base", "main", "--json"]);
+    const packageEnvelope = JSON.parse(packageResult.stdout);
+
+    expect(packageResult.status).toBe(0);
+    expect(packageEnvelope).toMatchObject({
+      mode: "dependencies",
+      results: [],
+      events: [{ type: "package-json-changed", path: "package.json" }],
+      errors: [],
+    });
+
+    const newLockfileFixture = await createFixture();
+    await writeFile(path.join(newLockfileFixture.repo, "npm-shrinkwrap.json"), lockfile("2.0.0"));
+    const newLockfileResult = runHelper(newLockfileFixture, ["--base", "main", "--json"]);
+    const newLockfileEnvelope = JSON.parse(newLockfileResult.stdout);
+
+    expect(newLockfileResult.status).toBe(0);
+    expect(newLockfileEnvelope).toMatchObject({
+      mode: "dependencies",
+      results: [],
+      events: [{ type: "new-lockfile", path: "npm-shrinkwrap.json" }],
+      errors: [],
+    });
+
+    const multiFixture = await createFixture(["package-lock.json", "npm-shrinkwrap.json"]);
+    await writeFile(path.join(multiFixture.repo, "package-lock.json"), lockfile("2.0.0"));
+    await writeFile(path.join(multiFixture.repo, "npm-shrinkwrap.json"), lockfile("3.0.0"));
+    const multiResult = runHelper(multiFixture, ["--base", "main", "--json"]);
+    const multiEnvelope = JSON.parse(multiResult.stdout);
+
+    expect(multiResult.status).toBe(0);
+    expect(multiEnvelope.results).toHaveLength(2);
+    expect(multiEnvelope.events).toHaveLength(2);
+    expect(multiEnvelope.errors).toEqual([]);
+    expect(multiResult.stdout.trim().startsWith("{")).toBe(true);
+    expect(multiResult.stdout.trim().endsWith("}")).toBe(true);
+
+    const failedFixture = await createFixture("package-lock.json", 7);
+    await writeFile(path.join(failedFixture.repo, "package-lock.json"), lockfile("2.0.0"));
+    const failedResult = runHelper(failedFixture, ["--base", "main", "--json"]);
+    const failedEnvelope = JSON.parse(failedResult.stdout);
+
+    expect(failedResult.status).toBe(7);
+    expect(failedEnvelope.errors).toEqual([{ type: "packsift", exitCode: 7 }]);
+  });
+
+  it("emits an envelope for removed inputs in JSON mode", async () => {
+    const fixture = await createFixture();
+    await rm(path.join(fixture.repo, "package-lock.json"));
+
+    const result = runHelper(fixture, ["--base", "main", "--json"]);
+    const envelope = JSON.parse(result.stdout);
+
+    expect(result.status).toBe(0);
+    expect(envelope).toMatchObject({
+      mode: "dependencies",
+      results: [],
+      events: [{ type: "removed-lockfile", path: "package-lock.json" }],
+      errors: [],
+    });
   });
 
   it("reports removed package and lockfile inputs", async () => {
@@ -104,16 +192,19 @@ describe("no-mistakes PackSift helper", () => {
 });
 
 async function createFixture(
-  lockfileName = "package-lock.json",
+  lockfileNames: string | string[] = "package-lock.json",
   exitCode = 0,
 ): Promise<{ repo: string; bin: string; log: string }> {
   const repo = await mkdtemp(path.join(os.tmpdir(), "packsift-no-mistakes-"));
   tempRoots.push(repo);
   const bin = path.join(repo, "fake-packsift");
   const log = path.join(repo, "packsift.log");
+  const names = Array.isArray(lockfileNames) ? lockfileNames : [lockfileNames];
 
   await writeFile(path.join(repo, "package.json"), '{"name":"fixture","version":"1.0.0"}\n');
-  await writeFile(path.join(repo, lockfileName), lockfile("1.0.0"));
+  for (const name of names) {
+    await writeFile(path.join(repo, name), lockfile("1.0.0"));
+  }
   await writeFile(log, "");
   await writeFile(
     bin,

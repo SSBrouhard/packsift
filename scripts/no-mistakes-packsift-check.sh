@@ -24,6 +24,8 @@ base_ref="${PACKSIFT_BASE_REF:-${GITHUB_BASE_REF:-main}}"
 packsift_bin="${PACKSIFT_BIN:-packsift}"
 json_flag=""
 release_input=""
+json_tmp_dir=""
+json_result_count=0
 
 if [ "${1:-}" = "dependencies" ] || [ "${1:-}" = "release" ]; then
   mode="$1"
@@ -68,9 +70,70 @@ done
 
 run_packsift() {
   if [ -n "$json_flag" ]; then
-    "$packsift_bin" "$@" "$json_flag"
+    json_result_count=$((json_result_count + 1))
+    "$packsift_bin" "$@" "$json_flag" > "$json_tmp_dir/result.$json_result_count"
   else
     "$packsift_bin" "$@"
+  fi
+}
+
+if [ -n "$json_flag" ]; then
+  json_tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/packsift-no-mistakes.XXXXXX") || {
+    echo "PackSift evidence error: cannot create JSON output buffer" >&2
+    exit 2
+  }
+  : > "$json_tmp_dir/events"
+  trap 'rm -rf "$json_tmp_dir"' EXIT
+fi
+
+emit_json_envelope() {
+  [ -n "$json_flag" ] || return 0
+  node - "$json_tmp_dir" "$mode" "$release_input" "$base_ref" "${1:-0}" <<'NODE'
+const { readdirSync, readFileSync } = require("node:fs");
+
+const [directory, mode, input, base, exitCode] = process.argv.slice(2);
+const resultFiles = readdirSync(directory)
+  .filter((name) => name.startsWith("result."))
+  .sort((left, right) => Number(left.slice(7)) - Number(right.slice(7)));
+const results = [];
+const errors = [];
+
+for (const resultFile of resultFiles) {
+  const raw = readFileSync(`${directory}/${resultFile}`, "utf8").trim();
+  if (!raw) continue;
+  try {
+    results.push(JSON.parse(raw));
+  } catch {
+    errors.push({ type: "invalid-json", source: resultFile });
+  }
+}
+
+const events = readFileSync(`${directory}/events`, "utf8")
+  .split("\n")
+  .filter(Boolean)
+  .map((event) => {
+    const [type, path, base] = event.split("\t");
+    return { type, ...(path ? { path } : {}), ...(base ? { base } : {}) };
+  });
+if (Number(exitCode) !== 0) {
+  errors.push({ type: "packsift", exitCode: Number(exitCode) });
+}
+
+const envelope = {
+  version: 1,
+  mode,
+  ...(mode === "release" ? { input } : { base }),
+  results,
+  events,
+  errors,
+};
+process.stdout.write(`${JSON.stringify(envelope, null, 2)}\n`);
+NODE
+}
+
+record_json_event() {
+  if [ -n "$json_flag" ]; then
+    printf '%s\t%s\t%s\n' "${1:-}" "${2:-}" "${3:-}" >> "$json_tmp_dir/events"
   fi
 }
 
@@ -87,8 +150,11 @@ if [ "$mode" = "release" ]; then
     release_input="."
   fi
   announce "PackSift pre-publish evidence: pack-check $release_input"
+  record_json_event "pre-publish" "$release_input"
   run_packsift pack-check "$release_input"
-  exit $?
+  status=$?
+  emit_json_envelope "$status"
+  exit "$status"
 fi
 
 if git rev-parse --verify --quiet "$base_ref^{commit}" >/dev/null; then
@@ -142,18 +208,22 @@ for lockfile in $lockfiles; do
   [ -n "$lockfile" ] || continue
   if ! git cat-file -e "$merge_base:$lockfile" 2>/dev/null; then
     announce "PackSift dependency evidence: $lockfile is new; no prior lockfile exists at $merge_base"
+    record_json_event "new-lockfile" "$lockfile" "$merge_base"
     continue
   fi
   if [ ! -f "$lockfile" ]; then
     announce "PackSift dependency evidence: $lockfile was removed; no prior-to-current comparison is available"
+    record_json_event "removed-lockfile" "$lockfile"
     continue
   fi
 
   announce "PackSift dependency evidence: batch $merge_base:$lockfile -> $lockfile"
+  record_json_event "batch" "$lockfile" "$merge_base"
   ran_check=true
   run_packsift batch "$merge_base:$lockfile" "$lockfile"
   status=$?
   if [ "$status" -ne 0 ]; then
+    emit_json_envelope "$status"
     exit "$status"
   fi
 done
@@ -162,12 +232,16 @@ IFS=$old_ifs
 if [ "$ran_check" = false ]; then
   if [ "$package_json_removed" = true ]; then
     announce "PackSift dependency evidence: package.json was removed; no dependency comparison can be inferred."
+    record_json_event "removed-package-json" "package.json"
   elif [ "$package_json_changed" = true ]; then
     announce "PackSift dependency evidence: package.json changed, but no existing changed lockfile can be compared."
     announce "Use a published transition for a known dependency: packsift <name>@<old> <name>@<new>"
+    record_json_event "package-json-changed" "package.json"
   elif [ "$relevant_change" = false ]; then
     announce "PackSift dependency evidence: no package.json or supported lockfile changes detected."
+    record_json_event "no-changes"
   fi
 fi
 
+emit_json_envelope 0
 exit 0
