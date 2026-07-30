@@ -1,16 +1,16 @@
 ---
 name: Signal proposal
-about: Propose a deterministic sift signal
+about: Propose a deterministic PackSift signal
 labels: enhancement
 ---
 
 ## Proposed Deterministic Signal
 
-Describe the exact package artifact evidence sift would inspect.
+Describe the exact package artifact evidence PackSift would inspect.
 
 ## Evidence Rationale
 
-Explain why the evidence is useful without asking sift to decide what it means.
+Explain why the evidence is useful without asking PackSift to decide what it means.
 
 ## Determinism Notes
 
@@ -21,5 +21,5 @@ lookups.
 ## Doctrine Fit
 
 Verdict-style features, including risk scores, recommendations, merge/hold
-guidance, or claims that a package is safe or unsafe, violate sift doctrine and
+guidance, or claims that a package is safe or unsafe, violate PackSift doctrine and
 will be declined.

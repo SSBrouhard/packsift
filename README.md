@@ -1,8 +1,8 @@
-# sift
+# PackSift
 
 Deterministic npm tarball diff CLI with supply-chain tripwires.
 
-`sift` compares published npm package versions by downloading their tarballs,
+PackSift compares published npm package versions by downloading their tarballs,
 hashing the unpacked files, and reporting material differences plus
 deterministic supply-chain-relevant signals. It can inspect one published
 package version, compare one package transition directly, or compare two npm,
@@ -11,11 +11,11 @@ registry-backed dependencies.
 
 ## Doctrine: Evidence, Never Verdict
 
-sift puts the facts next to each other. Its own narration never tells you what
+PackSift puts the facts next to each other. Its own narration never tells you what
 they mean.
 
 The human report lists bytes, hashes, file changes, metadata correlations, and
-deterministic signal matches, then stops. Sift-authored labels avoid merge,
+deterministic signal matches, then stops. PackSift-authored labels avoid merge,
 review, hold, urgent, risk-score, and recommendation-style verdicts. Package
 names, file paths, registry metadata, and `--json` output still preserve source
 data exactly.
@@ -36,14 +36,14 @@ Node.js 20 or newer.
 Install the CLI globally:
 
 ```sh
-npm i -g @ssbrouhard/sift
-sift lodash@4.17.20 lodash@4.17.21
+npm i -g @ssbrouhard/packsift
+packsift lodash@4.17.20 lodash@4.17.21
 ```
 
 Or run it without installing:
 
 ```sh
-npx -y @ssbrouhard/sift lodash@4.17.20 lodash@4.17.21
+npx -y @ssbrouhard/packsift lodash@4.17.20 lodash@4.17.21
 ```
 
 Releases will be published from CI with npm provenance; the first published
@@ -60,24 +60,24 @@ npm ci && npm run build && node dist/cli.js <args>
 
 ```sh
 # Compare one package transition.
-sift <name>@<old> <name>@<new>
-sift lodash@4.17.20 lodash@4.17.21
-sift @scope/pkg@1.2.3 @scope/pkg@1.2.4
-sift kysely@0.28.16 kysely@0.28.17 --advisories
-sift kysely@0.28.16 kysely@0.28.17 --advisories=summary
+packsift <name>@<old> <name>@<new>
+packsift lodash@4.17.20 lodash@4.17.21
+packsift @scope/pkg@1.2.3 @scope/pkg@1.2.4
+packsift kysely@0.28.16 kysely@0.28.17 --advisories
+packsift kysely@0.28.16 kysely@0.28.17 --advisories=summary
 
 # Inspect one package version.
-sift inspect <name>@<version>
-sift inspect anthropic-toolkit@1.0.0
-sift inspect @aspect-security/argon2@1.0.0 --json
-sift inspect anthropic-toolkit@1.0.0 --advisories
+packsift inspect <name>@<version>
+packsift inspect anthropic-toolkit@1.0.0
+packsift inspect @aspect-security/argon2@1.0.0 --json
+packsift inspect anthropic-toolkit@1.0.0 --advisories
 
 # Compare lockfile transitions.
-sift batch <old-lockfile> <new-lockfile>
-sift batch package-lock.before.json package-lock.json
-sift batch HEAD~1:pnpm-lock.yaml HEAD:pnpm-lock.yaml
-git show HEAD~1:yarn.lock | sift batch - yarn.lock
-sift batch package-lock.before.json package-lock.json --advisories
+packsift batch <old-lockfile> <new-lockfile>
+packsift batch package-lock.before.json package-lock.json
+packsift batch HEAD~1:pnpm-lock.yaml HEAD:pnpm-lock.yaml
+git show HEAD~1:yarn.lock | packsift batch - yarn.lock
+packsift batch package-lock.before.json package-lock.json --advisories
 ```
 
 Options:
@@ -133,18 +133,20 @@ Batch mode only considers registry-backed package entries. Linked, aliased,
 file, git, off-registry, and unresolved entries are ignored before transition
 classification. Packages are analyzed when both lockfiles contain exactly one
 version and that version changed. Added-only packages with exactly one resolved
-version are analyzed with the same single-tarball path as `sift inspect` and
+version are analyzed with the same single-tarball path as `packsift inspect` and
 labeled `added (no prior version to compare)`. Removed-only and
 multiple-version packages are listed as skipped.
 
-The npm package is `@ssbrouhard/sift`; the CLI command is `sift`.
+The npm package is `@ssbrouhard/packsift`; the canonical CLI command is
+`packsift`. The legacy `sift` command remains available as a temporary
+compatibility alias for one release.
 
 The supported interface is the CLI. The package build also contains TypeScript
 modules used by the CLI, but the package does not expose a root library entry.
 
 ## Output
 
-`sift` strips the tarball `package/` prefix, hashes raw unpacked file bytes, and
+PackSift strips the tarball `package/` prefix, hashes raw unpacked file bytes, and
 omits unchanged files from the report. Changed text files show line counts by
 default; `--diff` adds unified diffs. Binary, non-text, or large changed files
 show size-only changes.
@@ -156,7 +158,7 @@ signals, integrity evidence, and unpacked size. With `--advisories`, each
 analyzed entry also gets a compact advisory count line; JSON nests the full
 `advisorySidecar` under each analyzed transition or added entry. Per-package
 errors do not stop the rest of the batch, but they set the process exit code to
-1. Use `sift batch --json` for structured per-package reports, or `sift batch
+1. Use `packsift batch --json` for structured per-package reports, or `packsift batch
 --detail` for expanded human reports.
 
 With `--advisories`, inspect and single-transition output add an `Advisory
@@ -194,7 +196,7 @@ Signals are deterministic tripwires:
 
 ## Scope
 
-`sift` uses published npm artifacts only, with lockfiles used only to discover
+PackSift uses published npm artifacts only, with lockfiles used only to discover
 package transitions and added dependencies for batch analysis. The deterministic
 core does not clone GitHub repositories, call model APIs, ingest advisories into
 its analysis, score risk, comment on PRs, or inspect consumer project source.

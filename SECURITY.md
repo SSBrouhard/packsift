@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Security fixes are provided for the current published version of `@ssbrouhard/sift`.
+Security fixes are provided for the current published version of `@ssbrouhard/packsift`.
 
 ## Reporting a Vulnerability
 

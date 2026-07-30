@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping harden `sift`.
+Thanks for helping harden PackSift.
 This project is a supply-chain inspection CLI, so changes should keep the tool deterministic, explicit, and evidence-only.
 
 ## Local Setup
@@ -37,7 +37,7 @@ node dist/cli.js --help
 
 ## Runtime Contract
 
-`sift` supports Node.js 20 or newer.
+PackSift supports Node.js 20 or newer.
 CI must test Node 20, and `@types/node` should stay on the Node 20 major line unless the runtime floor is intentionally raised.
 
 ## Pull Requests

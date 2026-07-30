@@ -4,7 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-- Add `sift inspect <pkg@version>` for deterministic single-tarball evidence reports, including package metadata facts already present in registry metadata and opt-in single-version advisory sidecars.
+- Rename the npm package to `@ssbrouhard/packsift` and make `packsift` the canonical CLI command, while retaining `sift` as a temporary compatibility alias for one release.
+- Add `packsift inspect <pkg@version>` for deterministic single-tarball evidence reports, including package metadata facts already present in registry metadata and opt-in single-version advisory sidecars.
 - Analyze added batch dependencies through the inspect path and label them as `added (no prior version to compare)` while keeping removed dependencies skipped.
 
 ## 0.1.0
