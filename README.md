@@ -13,6 +13,10 @@ npm i -g @ssbrouhard/packsift
 packsift lodash@4.17.20 lodash@4.17.21
 ```
 
+## Demo
+
+[![PackSift comparing two published npm releases](docs/assets/packsift-demo.gif)](https://x.com/ssbrouhard/status/2082826739407831515)
+
 PackSift can also inspect one published package version or compare two npm,
 yarn, or pnpm lockfiles and run tarball analysis for changed and newly added
 registry-backed dependencies.
