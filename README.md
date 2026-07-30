@@ -1,11 +1,19 @@
 # PackSift
 
-Deterministic npm tarball diff CLI with supply-chain tripwires.
+**Your Git diff is not your npm release.**
 
-PackSift compares published npm package versions by downloading their tarballs,
-hashing the unpacked files, and reporting material differences plus
-deterministic supply-chain-relevant signals. It can inspect one published
-package version, compare one package transition directly, or compare two npm,
+PackSift compares the published npm tarballs users actually install. It reports
+unexpected files, lifecycle scripts, native binaries, possible secrets, and
+other supply-chain drift with deterministic evidence instead of a verdict.
+
+Install it and compare two published releases:
+
+```sh
+npm i -g @ssbrouhard/packsift
+packsift lodash@4.17.20 lodash@4.17.21
+```
+
+PackSift can also inspect one published package version or compare two npm,
 yarn, or pnpm lockfiles and run tarball analysis for changed and newly added
 registry-backed dependencies.
 
@@ -46,9 +54,10 @@ Or run it without installing:
 npx -y @ssbrouhard/packsift lodash@4.17.20 lodash@4.17.21
 ```
 
-Releases will be published from CI with npm provenance; the first published
-version will carry a verifiable attestation linking the artifact back to the
-GitHub workflow that built it.
+Tagged releases are published from the public
+[PackSift repository](https://github.com/SSBrouhard/packsift) with npm
+provenance, linking new package versions to the GitHub workflow that built
+them.
 
 To run from source:
 
@@ -137,9 +146,11 @@ version are analyzed with the same single-tarball path as `packsift inspect` and
 labeled `added (no prior version to compare)`. Removed-only and
 multiple-version packages are listed as skipped.
 
-The npm package is `@ssbrouhard/packsift`; the canonical CLI command is
-`packsift`. The legacy `sift` command remains available as a temporary
-compatibility alias for one release.
+The npm package is `@ssbrouhard/packsift`, and its CLI command is `packsift`.
+Version 0.1.0 included a one-release `sift` compatibility alias; version 0.1.1
+and later expose only `packsift`. The public repository was renamed from
+`SSBrouhard/sift` to
+[`SSBrouhard/packsift`](https://github.com/SSBrouhard/packsift).
 
 The supported interface is the CLI. The package build also contains TypeScript
 modules used by the CLI, but the package does not expose a root library entry.
