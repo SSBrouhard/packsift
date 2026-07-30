@@ -29,7 +29,7 @@ node dist/cli.js --help
 
 ## Scope Rules
 
-- Keep the deterministic analyzer focused on published npm artifacts.
+- Keep the deterministic analyzer evidence-only and follow the supported artifact scope in the [README](README.md#scope).
 - Do not add model calls, GitHub repository cloning, risk scores, PR comments, or verdict language to core analysis.
 - Keep `--advisories` as a sidecar: opt-in, attributed, structured by default, and outside `analyze`.
 - Keep OSV summary text as explicit third-party passthrough, and avoid sending custom-registry package coordinates to public OSV.dev unless the user acknowledges it.
