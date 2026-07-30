@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -23,11 +23,13 @@ describe("published package contract", () => {
     });
     const [dryRun] = JSON.parse(output) as PackDryRun[];
     const cli = dryRun.files.find((file) => file.path === "dist/cli.js");
+    const builtCli = await stat(path.join(root, "dist/cli.js"));
 
     expect(manifest.bin).toEqual({
       packsift: "dist/cli.js",
       sift: "dist/cli.js"
     });
+    expect(builtCli.mode & 0o111).not.toBe(0);
     expect(cli).toBeDefined();
     expect(cli!.mode & 0o111).not.toBe(0);
   });
