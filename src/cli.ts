@@ -192,7 +192,7 @@ export async function runInspect(options: CliOptions, deps: InspectDeps = {}): P
 }
 
 export async function runPackCheck(options: PackCheckCliOptions, deps: PackCheckDeps = {}): Promise<void> {
-  if (options.advisories !== "off") {
+  if (options.advisories !== "off" || options.advisoryEndpoint !== undefined || options.advisoriesAllowPublic) {
     throw new Error("packsift pack-check does not support --advisories because the local package version is not a published registry coordinate");
   }
 

@@ -159,9 +159,13 @@ describe("pack-check comparison", () => {
     })).rejects.toThrow("Package has no published latest version");
   });
 
-  it("rejects advisory queries for the unpublished local side before packing", async () => {
+  it.each([
+    ["--advisories"],
+    ["--advisory-endpoint", "https://osv.test/v1/query"],
+    ["--advisories-allow-public"]
+  ])("rejects %s for the unpublished local side before packing", async (...advisoryArgs: string[]) => {
     let prepared = false;
-    await expect(runPackCheck(parsePackCheckArgs([".", "--advisories"]), {
+    await expect(runPackCheck(parsePackCheckArgs([".", ...advisoryArgs]), {
       prepareLocalPackage: async () => {
         prepared = true;
         throw new Error("must not run");
