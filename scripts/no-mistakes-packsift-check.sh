@@ -50,8 +50,8 @@ if [ -n "$json_flag" ]; then
   json_tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/packsift-no-mistakes.XXXXXX") || {
     json_buffer_error "PackSift evidence error: cannot create JSON output buffer"
   }
-  : > "$json_tmp_dir/events" || json_buffer_error "PackSift evidence error: cannot initialize JSON output buffer"
   trap 'rm -rf "$json_tmp_dir"' EXIT
+  : > "$json_tmp_dir/events" || json_buffer_error "PackSift evidence error: cannot initialize JSON output buffer"
 fi
 
 emit_json_envelope() {
