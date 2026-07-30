@@ -111,7 +111,9 @@ export async function fetchPackage(spec: PackageSpec, options: FetchOptions): Pr
 }
 
 async function fetchMetadata(name: string, registry: string): Promise<RegistryMetadata> {
-  const base = registry.replace(/\/+$/, "");
+  let baseEnd = registry.length;
+  while (baseEnd > 0 && registry[baseEnd - 1] === "/") baseEnd -= 1;
+  const base = registry.slice(0, baseEnd);
   const encodedName = name.startsWith("@") ? name.replace("/", "%2F") : encodeURIComponent(name);
   const response = await fetch(`${base}/${encodedName}`);
   if (!response.ok) {

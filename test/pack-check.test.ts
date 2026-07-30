@@ -5,6 +5,7 @@ import * as tar from "tar";
 import { afterEach, describe, expect, it } from "vitest";
 import { packCheckHelpText, parsePackCheckArgs, runPackCheck } from "../src/cli.js";
 import { prepareLocalPackage } from "../src/local-pack.js";
+import { resolvePublishedVersion } from "../src/registry.js";
 import { Report } from "../src/types.js";
 
 const cleanupRoots: string[] = [];
@@ -77,6 +78,26 @@ describe("local package preparation", () => {
 });
 
 describe("pack-check comparison", () => {
+  it("normalizes repeated trailing registry slashes without a regular expression", async () => {
+    const originalFetch = globalThis.fetch;
+    const requests: string[] = [];
+    globalThis.fetch = async (input) => {
+      requests.push(input.toString());
+      return new Response(JSON.stringify({
+        "dist-tags": { latest: "1.0.0" },
+        versions: { "1.0.0": { name: "fixture-pkg", version: "1.0.0" } }
+      }));
+    };
+
+    try {
+      await expect(resolvePublishedVersion("fixture-pkg", "https://registry.test///")).resolves.toBe("1.0.0");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(requests).toEqual(["https://registry.test/fixture-pkg"]);
+  });
+
   it("compares a local pack with the registry latest through the transition evidence engine", async () => {
     const root = await fixtureRoot();
     const oldTarball = await createPackageTarball(root, "old.tgz", {
