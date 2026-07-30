@@ -102,6 +102,7 @@ describe("no-mistakes PackSift helper", () => {
 
     const newLockfileFixture = await createFixture();
     await writeFile(path.join(newLockfileFixture.repo, "npm-shrinkwrap.json"), lockfile("2.0.0"));
+    git(newLockfileFixture.repo, ["add", "npm-shrinkwrap.json"]);
     const newLockfileResult = runHelper(newLockfileFixture, ["--base", "main", "--json"]);
     const newLockfileEnvelope = JSON.parse(newLockfileResult.stdout);
 

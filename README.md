@@ -72,9 +72,12 @@ To run from source:
 npm ci && npm run build && node dist/cli.js <args>
 ```
 
-`pack-check` requires PackSift 0.2.0 or later. If npm still serves 0.1.1, run
-that command from a source build as shown above until a 0.2.x release is
-published.
+`pack-check` requires PackSift 0.2.0 or later. If the version you need is not
+yet published on npm, run it from a source build as shown above, for example:
+
+```sh
+node dist/cli.js pack-check .
+```
 
 ## Optional no-mistakes and agent-pipeline check
 
