@@ -23,7 +23,7 @@ mode="dependencies"
 base_ref="${PACKSIFT_BASE_REF:-${GITHUB_BASE_REF:-main}}"
 packsift_bin="${PACKSIFT_BIN:-packsift}"
 json_flag=""
-release_input="."
+release_input=""
 
 if [ "${1:-}" = "dependencies" ] || [ "${1:-}" = "release" ]; then
   mode="$1"
@@ -55,7 +55,7 @@ while [ "$#" -gt 0 ]; do
       exit 2
       ;;
     *)
-      if [ "$mode" != "release" ] || [ "$release_input" != "." ]; then
+      if [ "$mode" != "release" ] || [ -n "$release_input" ]; then
         echo "PackSift evidence error: unexpected argument: $1" >&2
         usage >&2
         exit 2
@@ -74,8 +74,19 @@ run_packsift() {
   fi
 }
 
+announce() {
+  if [ -n "$json_flag" ]; then
+    echo "$@" >&2
+  else
+    echo "$@"
+  fi
+}
+
 if [ "$mode" = "release" ]; then
-  echo "PackSift pre-publish evidence: pack-check $release_input"
+  if [ -z "$release_input" ]; then
+    release_input="."
+  fi
+  announce "PackSift pre-publish evidence: pack-check $release_input"
   run_packsift pack-check "$release_input"
   exit $?
 fi
@@ -94,24 +105,31 @@ merge_base=$(git merge-base "$resolved_base" HEAD) || {
   exit 2
 }
 
-changed_paths=$(git diff --name-only --diff-filter=ACMRT "$merge_base" --) || {
+changed_paths=$(git diff --name-only --diff-filter=ACDMRT "$merge_base" --) || {
   echo "PackSift evidence error: cannot read changes from '$merge_base'" >&2
   exit 2
 }
 
 lockfiles=""
 package_json_changed=false
+package_json_removed=false
+relevant_change=false
 old_ifs=$IFS
 IFS='
 '
 for path in $changed_paths; do
   case "$path" in
-    package-lock.json|*/package-lock.json|pnpm-lock.yaml|*/pnpm-lock.yaml|yarn.lock|*/yarn.lock)
+    package-lock.json|*/package-lock.json|npm-shrinkwrap.json|*/npm-shrinkwrap.json|pnpm-lock.yaml|*/pnpm-lock.yaml|yarn.lock|*/yarn.lock)
+      relevant_change=true
       lockfiles="${lockfiles}${path}
 "
       ;;
     package.json|*/package.json)
+      relevant_change=true
       package_json_changed=true
+      if [ ! -f "$path" ]; then
+        package_json_removed=true
+      fi
       ;;
   esac
 done
@@ -123,15 +141,15 @@ IFS='
 for lockfile in $lockfiles; do
   [ -n "$lockfile" ] || continue
   if ! git cat-file -e "$merge_base:$lockfile" 2>/dev/null; then
-    echo "PackSift dependency evidence: $lockfile is new; no prior lockfile exists at $merge_base"
+    announce "PackSift dependency evidence: $lockfile is new; no prior lockfile exists at $merge_base"
     continue
   fi
   if [ ! -f "$lockfile" ]; then
-    echo "PackSift dependency evidence: $lockfile is not present in the working tree; skipping removed input"
+    announce "PackSift dependency evidence: $lockfile was removed; no prior-to-current comparison is available"
     continue
   fi
 
-  echo "PackSift dependency evidence: batch $merge_base:$lockfile -> $lockfile"
+  announce "PackSift dependency evidence: batch $merge_base:$lockfile -> $lockfile"
   ran_check=true
   run_packsift batch "$merge_base:$lockfile" "$lockfile"
   status=$?
@@ -142,11 +160,13 @@ done
 IFS=$old_ifs
 
 if [ "$ran_check" = false ]; then
-  if [ "$package_json_changed" = true ]; then
-    echo "PackSift dependency evidence: package.json changed, but no existing changed lockfile can be compared."
-    echo "Use a published transition for a known dependency: packsift <name>@<old> <name>@<new>"
-  else
-    echo "PackSift dependency evidence: no package.json or supported lockfile changes detected."
+  if [ "$package_json_removed" = true ]; then
+    announce "PackSift dependency evidence: package.json was removed; no dependency comparison can be inferred."
+  elif [ "$package_json_changed" = true ]; then
+    announce "PackSift dependency evidence: package.json changed, but no existing changed lockfile can be compared."
+    announce "Use a published transition for a known dependency: packsift <name>@<old> <name>@<new>"
+  elif [ "$relevant_change" = false ]; then
+    announce "PackSift dependency evidence: no package.json or supported lockfile changes detected."
   fi
 fi
 

@@ -21,9 +21,23 @@ describe("no-mistakes PackSift helper", () => {
     const result = runHelper(fixture, ["--base", "main", "--json"]);
 
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("PackSift dependency evidence: batch");
+    expect(JSON.parse(result.stdout)).toEqual({ fixture: "evidence" });
+    expect(result.stderr).toContain("PackSift dependency evidence: batch");
     expect(await readFile(fixture.log, "utf8")).toMatch(
       /^batch [0-9a-f]+:package-lock\.json package-lock\.json --json\n$/,
+    );
+  });
+
+  it("runs batch evidence for a changed npm shrinkwrap file", async () => {
+    const fixture = await createFixture("npm-shrinkwrap.json");
+    await writeFile(path.join(fixture.repo, "npm-shrinkwrap.json"), lockfile("2.0.0"));
+
+    const result = runHelper(fixture, ["--base", "main"]);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("PackSift dependency evidence: batch");
+    expect(await readFile(fixture.log, "utf8")).toMatch(
+      /^batch [0-9a-f]+:npm-shrinkwrap\.json npm-shrinkwrap\.json\n$/,
     );
   });
 
@@ -44,12 +58,42 @@ describe("no-mistakes PackSift helper", () => {
     const result = runHelper(fixture, ["release", ".", "--json"]);
 
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("PackSift pre-publish evidence: pack-check .");
+    expect(JSON.parse(result.stdout)).toEqual({ fixture: "evidence" });
+    expect(result.stderr).toContain("PackSift pre-publish evidence: pack-check .");
     expect(await readFile(fixture.log, "utf8")).toBe("pack-check . --json\n");
   });
 
+  it("reports removed package and lockfile inputs", async () => {
+    const packageFixture = await createFixture();
+    await rm(path.join(packageFixture.repo, "package.json"));
+
+    const packageResult = runHelper(packageFixture, ["--base", "main"]);
+
+    expect(packageResult.status).toBe(0);
+    expect(packageResult.stdout).toContain("package.json was removed");
+
+    const lockfileFixture = await createFixture();
+    await rm(path.join(lockfileFixture.repo, "package-lock.json"));
+
+    const lockfileResult = runHelper(lockfileFixture, ["--base", "main"]);
+
+    expect(lockfileResult.status).toBe(0);
+    expect(lockfileResult.stdout).toContain("package-lock.json was removed");
+    expect(lockfileResult.stdout).not.toContain("no package.json or supported lockfile changes detected");
+  });
+
+  it("rejects multiple release inputs even when the first is the default path", async () => {
+    const fixture = await createFixture();
+
+    const result = runHelper(fixture, ["release", ".", "extra"]);
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("unexpected argument: extra");
+    expect(await readFile(fixture.log, "utf8")).toBe("");
+  });
+
   it("returns non-zero when PackSift cannot complete", async () => {
-    const fixture = await createFixture(7);
+    const fixture = await createFixture("package-lock.json", 7);
     await writeFile(path.join(fixture.repo, "package-lock.json"), lockfile("2.0.0"));
 
     const result = runHelper(fixture, ["--base", "main"]);
@@ -59,18 +103,21 @@ describe("no-mistakes PackSift helper", () => {
   });
 });
 
-async function createFixture(exitCode = 0): Promise<{ repo: string; bin: string; log: string }> {
+async function createFixture(
+  lockfileName = "package-lock.json",
+  exitCode = 0,
+): Promise<{ repo: string; bin: string; log: string }> {
   const repo = await mkdtemp(path.join(os.tmpdir(), "packsift-no-mistakes-"));
   tempRoots.push(repo);
   const bin = path.join(repo, "fake-packsift");
   const log = path.join(repo, "packsift.log");
 
   await writeFile(path.join(repo, "package.json"), '{"name":"fixture","version":"1.0.0"}\n');
-  await writeFile(path.join(repo, "package-lock.json"), lockfile("1.0.0"));
+  await writeFile(path.join(repo, lockfileName), lockfile("1.0.0"));
   await writeFile(log, "");
   await writeFile(
     bin,
-    `#!/bin/sh\nprintf '%s\\n' "$*" >> "$PACKSIFT_TEST_LOG"\necho "fixture evidence"\nexit ${exitCode}\n`,
+    `#!/bin/sh\nprintf '%s\\n' "$*" >> "$PACKSIFT_TEST_LOG"\ncase " $* " in\n  *" --json "*) echo '{"fixture":"evidence"}' ;;\n  *) echo "fixture evidence" ;;\nesac\nexit ${exitCode}\n`,
   );
   await chmod(bin, 0o755);
 

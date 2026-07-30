@@ -118,9 +118,9 @@ scripts/no-mistakes-packsift-check.sh release . --json
 ```
 
 Dependency mode detects changed `package.json`, `package-lock.json`,
-`pnpm-lock.yaml`, and `yarn.lock` files, including files in workspace package
-directories. It runs `packsift batch` for each changed lockfile that exists on
-both sides. A new lockfile or a `package.json`-only change is described without
+`npm-shrinkwrap.json`, `pnpm-lock.yaml`, and `yarn.lock` files, including files
+in workspace package directories. It runs `packsift batch` for each changed
+lockfile that exists on both sides. A new lockfile or a `package.json`-only change is described without
 guessing a package transition; supply a published old/new pair when one is
 known. Release mode runs `packsift pack-check`.
 
