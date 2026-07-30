@@ -72,6 +72,68 @@ To run from source:
 npm ci && npm run build && node dist/cli.js <args>
 ```
 
+`pack-check` requires PackSift 0.2.0 or later. If npm still serves 0.1.1, run
+that command from a source build as shown above until a 0.2.x release is
+published.
+
+## Optional no-mistakes and agent-pipeline check
+
+PackSift can be an optional evidence-producing step when a pull request or
+release touches npm packages. Attach its human output or `--json` output to the
+review record. Treat that output as facts for a reviewer: do not turn file
+drift, signals, or other PackSift evidence into an automatic risk score or
+merge verdict.
+
+For dependency changes, compare the base and proposed lockfiles:
+
+```sh
+packsift batch origin/main:package-lock.json package-lock.json
+packsift batch origin/main:pnpm-lock.yaml pnpm-lock.yaml --json
+git show origin/main:yarn.lock | packsift batch - yarn.lock
+
+# If a package.json change identifies one transition but has no lockfile:
+packsift lodash@4.17.20 lodash@4.17.21
+```
+
+For a pre-publish or release check, compare the exact local npm artifact with
+the previously published package:
+
+```sh
+packsift pack-check .
+packsift pack-check . --json
+```
+
+This repository includes
+[`scripts/no-mistakes-packsift-check.sh`](scripts/no-mistakes-packsift-check.sh)
+as an optional custom-step helper. Copy or adapt it in a package repository
+where PackSift is installed, then invoke one of:
+
+```sh
+# PR dependency evidence; base defaults to GITHUB_BASE_REF, then main.
+scripts/no-mistakes-packsift-check.sh
+scripts/no-mistakes-packsift-check.sh --base origin/main --json
+
+# Release evidence.
+scripts/no-mistakes-packsift-check.sh release . --json
+```
+
+Dependency mode detects changed `package.json`, `package-lock.json`,
+`pnpm-lock.yaml`, and `yarn.lock` files, including files in workspace package
+directories. It runs `packsift batch` for each changed lockfile that exists on
+both sides. A new lockfile or a `package.json`-only change is described without
+guessing a package transition; supply a published old/new pair when one is
+known. Release mode runs `packsift pack-check`.
+
+The helper writes evidence to stdout and returns zero when checks complete,
+regardless of reported drift. It returns non-zero only for usage, git/base
+resolution, or PackSift execution failures. Set `PACKSIFT_BIN` to select a
+PackSift executable and `PACKSIFT_BASE_REF` to override the fallback base.
+
+The no-mistakes custom-check configuration API is not defined by this
+repository, so wiring is deliberately manual: add the helper invocation as a
+custom command in the pipeline configuration used by your no-mistakes
+installation. Keep it optional and preserve stdout as a review artifact.
+
 ## Usage
 
 ```sh
