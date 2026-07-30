@@ -21,6 +21,7 @@ export async function analyze(input: AnalyzeInput, options: AnalyzeOptions = {})
     newManifest,
     oldRegistryManifest: input.oldRegistryManifest,
     newRegistryManifest: input.newRegistryManifest,
+    includeRegistryMetadataSignals: input.includeRegistryMetadataSignals,
     entries,
     oldFiles,
     newFiles,

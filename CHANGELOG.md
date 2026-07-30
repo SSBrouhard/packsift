@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.2.0 - 2026-07-30
+
+- Add `packsift pack-check [dir-or-tgz]` for pre-publish comparison of an `npm pack` artifact with an explicit published version or the registry's latest version.
+- Reuse the transition evidence engine for local lifecycle scripts, files, bins, native payloads, and signals while limiting registry integrity and metadata evidence to the published baseline.
+- Reject advisory sidecars for local comparisons because the unpublished side is not a registry coordinate.
+
 ## 0.1.1 - 2026-07-30
 
 - Publish the source repository at `https://github.com/SSBrouhard/packsift` and correct npm package metadata for the renamed public project.

@@ -18,6 +18,7 @@ export interface SignalInput {
   newManifest: PackageManifest;
   oldRegistryManifest: PackageManifest;
   newRegistryManifest: PackageManifest;
+  includeRegistryMetadataSignals?: boolean;
   entries: FileChange[];
   oldFiles: Map<string, FileInfo>;
   newFiles: Map<string, FileInfo>;
@@ -27,7 +28,9 @@ export interface SignalInput {
 export async function computeSignals(input: SignalInput): Promise<Signal[]> {
   const signals: (Signal | undefined)[] = [
     lifecycleScripts(input.oldManifest, input.newManifest),
-    maintainerPublisher(input.oldRegistryManifest, input.newRegistryManifest),
+    input.includeRegistryMetadataSignals === false
+      ? undefined
+      : maintainerPublisher(input.oldRegistryManifest, input.newRegistryManifest),
     await executablePayloads(input.entries, input.newRoot),
     await minifiedSource(input.entries, input.oldRoot, input.newRoot),
     await nativeBuildConfig(input.entries, input.newFiles, input.newRoot),
