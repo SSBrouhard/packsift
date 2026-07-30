@@ -500,7 +500,7 @@ describe("inspect reports", () => {
       version: { version: "1.0.0", vulns: [] }
     });
 
-    expect(output).toContain("sift inspect  fresh-pkg@1.0.0");
+    expect(output).toContain("packsift inspect  fresh-pkg@1.0.0");
     expect(output).toContain("published: 2026-06-15T00:00:00.000Z");
     expect(output).toContain("maintainers: 2");
     expect(output).toContain("versions: 1");
@@ -542,7 +542,7 @@ describe("inspect reports", () => {
   });
 
   it("documents inspect help", () => {
-    expect(inspectHelpText()).toContain("sift inspect <name>@<version> [options]");
+    expect(inspectHelpText()).toContain("packsift inspect <name>@<version> [options]");
     expect(inspectHelpText()).toContain("--advisories");
   });
 });
@@ -802,7 +802,7 @@ describe("advisory sidecar rendering and CLI orchestration", () => {
     });
 
     const text = output.join("");
-    expect(text).toContain("sift  pkg@1.0.0 -> 1.0.1");
+    expect(text).toContain("packsift  pkg@1.0.0 -> 1.0.1");
     expect(text).toContain("-- Files --------------------------------");
     expect(text).toContain("old version 1.0.0\n    advisories unavailable: OSV.dev request failed: HTTP 503");
     expect(text).toContain("new version 1.0.1\n    none returned");

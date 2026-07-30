@@ -2,7 +2,7 @@ import { Advisory, AdvisorySidecar, AdvisoryVersionResult, BatchReport, FileChan
 
 export function formatHuman(report: Report, includeDiffs: boolean, advisorySidecar?: AdvisorySidecar): string {
   const lines: string[] = [];
-  lines.push(`sift  ${report.packageName}@${report.oldVersion} -> ${report.newVersion}`);
+  lines.push(`packsift  ${report.packageName}@${report.oldVersion} -> ${report.newVersion}`);
   lines.push("");
   lines.push("-- Flagged ------------------------------");
 
@@ -51,7 +51,7 @@ export function formatHuman(report: Report, includeDiffs: boolean, advisorySidec
 
 export function formatInspectHuman(report: InspectReport, advisorySidecar?: InspectAdvisorySidecar): string {
   const lines: string[] = [];
-  lines.push(`sift inspect  ${report.packageName}@${report.version}`);
+  lines.push(`packsift inspect  ${report.packageName}@${report.version}`);
   lines.push("");
   lines.push("-- Package metadata ---------------------");
   lines.push(`  published: ${report.metadata.publishedAt ?? "unknown"}`);
@@ -120,7 +120,7 @@ export interface BatchHumanOptions {
 export function formatBatchHuman(report: BatchReport, options: BatchHumanOptions = {}): string {
   const lines: string[] = [];
   const addedEntries = report.added ?? [];
-  lines.push("sift batch");
+  lines.push("packsift batch");
   if (report.sources) {
     lines.push(`old: ${report.sources.old}`);
     lines.push(`new: ${report.sources.new}`);

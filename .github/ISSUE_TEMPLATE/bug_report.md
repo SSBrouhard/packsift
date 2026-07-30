@@ -1,12 +1,12 @@
 ---
 name: Bug report
-about: Report reproducible sift behavior
+about: Report reproducible PackSift behavior
 labels: bug
 ---
 
 ## Environment
 
-- sift version:
+- PackSift version:
 - Node.js version:
 - Package manager and version:
 - Operating system:

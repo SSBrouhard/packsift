@@ -80,7 +80,7 @@ interface InspectDeps {
 
 export async function runSingleTransition(options: CliOptions, deps: SingleTransitionDeps = {}): Promise<void> {
   if (options.positionals.length !== 2) {
-    throw new Error("Expected exactly two positional args: sift <name>@<old> <name>@<new>");
+    throw new Error("Expected exactly two positional args: packsift <name>@<old> <name>@<new>");
   }
   assertAdvisoryRegistry(options);
 
@@ -130,7 +130,7 @@ export async function runSingleTransition(options: CliOptions, deps: SingleTrans
 
 export async function runInspect(options: CliOptions, deps: InspectDeps = {}): Promise<void> {
   if (options.positionals.length !== 1) {
-    throw new Error("Expected exactly one positional arg: sift inspect <name>@<version>");
+    throw new Error("Expected exactly one positional arg: packsift inspect <name>@<version>");
   }
   assertAdvisoryRegistry(options);
 
@@ -184,7 +184,7 @@ interface BatchDeps {
 export async function runBatch(options: BatchCliOptions, deps: BatchDeps = {}): Promise<void> {
   assertAdvisoryRegistry(options);
   const stdinCount = [options.oldLockfile, options.newLockfile].filter((arg) => arg === "-").length;
-  if (stdinCount > 1) throw new Error("sift batch accepts stdin for only one lockfile argument");
+  if (stdinCount > 1) throw new Error("packsift batch accepts stdin for only one lockfile argument");
 
   const oldSource = await resolveLockfileArgument(options.oldLockfile, deps);
   const newSource = await resolveLockfileArgument(options.newLockfile, deps);
@@ -350,13 +350,13 @@ export function parseBatchArgs(args: string[]): BatchCliOptions {
   }
 
   if (options.positionals.length !== 2) {
-    throw new Error("Expected exactly two lockfile inputs: sift batch <old-lockfile> <new-lockfile>");
+    throw new Error("Expected exactly two lockfile inputs: packsift batch <old-lockfile> <new-lockfile>");
   }
   if (options.positionals.filter((arg) => arg === "-").length > 1) {
-    throw new Error("sift batch accepts stdin for only one lockfile argument");
+    throw new Error("packsift batch accepts stdin for only one lockfile argument");
   }
   if (options.diff && !options.json && !detail) {
-    throw new Error("sift batch --diff requires --json unless --detail is set");
+    throw new Error("packsift batch --diff requires --json unless --detail is set");
   }
 
   return {
@@ -370,9 +370,9 @@ export function parseBatchArgs(args: string[]): BatchCliOptions {
 
 export function helpText(): string {
   return `Usage:
-  sift <name>@<old> <name>@<new> [options]
-  sift inspect <name>@<version> [options]
-  sift batch <old-lockfile> <new-lockfile> [options]
+  packsift <name>@<old> <name>@<new> [options]
+  packsift inspect <name>@<version> [options]
+  packsift batch <old-lockfile> <new-lockfile> [options]
 
 Options:
   --json              Emit structured JSON
@@ -396,7 +396,7 @@ Batch options:
 
 export function inspectHelpText(): string {
   return `Usage:
-  sift inspect <name>@<version> [options]
+  packsift inspect <name>@<version> [options]
 
 Options:
   --json              Emit structured JSON
@@ -416,7 +416,7 @@ Options:
 
 export function batchHelpText(): string {
   return `Usage:
-  sift batch <old-lockfile> <new-lockfile> [options]
+  packsift batch <old-lockfile> <new-lockfile> [options]
 
 Options:
   --json              Emit structured JSON
@@ -534,7 +534,7 @@ function isHelpRequest(args: string[]): boolean {
 if (isDirectRun()) {
   main().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`sift: ${message}\n`);
+    process.stderr.write(`packsift: ${message}\n`);
     process.exitCode = 1;
   });
 }

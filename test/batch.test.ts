@@ -286,7 +286,7 @@ describe("batch formatting and CLI parsing", () => {
     );
 
     expect(output).toContain("alpha  1.0.0 -> 1.0.1   1 changed files; signals: no signals");
-    expect(output).toContain("    sift  alpha@1.0.0 -> 1.0.1");
+    expect(output).toContain("    packsift  alpha@1.0.0 -> 1.0.1");
     expect(output).toContain("    -- Files");
   });
 
@@ -312,8 +312,8 @@ describe("batch formatting and CLI parsing", () => {
   });
 
   it("documents top-level and batch help", () => {
-    expect(helpText()).toContain("sift <name>@<old> <name>@<new> [options]");
-    expect(helpText()).toContain("sift batch <old-lockfile> <new-lockfile> [options]");
+    expect(helpText()).toContain("packsift <name>@<old> <name>@<new> [options]");
+    expect(helpText()).toContain("packsift batch <old-lockfile> <new-lockfile> [options]");
     expect(batchHelpText()).toContain("--detail");
     expect(batchHelpText()).toContain("--advisories");
     expect(batchHelpText()).toContain("--advisory-endpoint");
@@ -335,7 +335,7 @@ describe("batch formatting and CLI parsing", () => {
   });
 
   it("rejects batch diffs unless JSON can expose them", () => {
-    expect(() => parseBatchArgs(["--diff", "old.json", "new.json"])).toThrow("sift batch --diff requires --json unless --detail is set");
+    expect(() => parseBatchArgs(["--diff", "old.json", "new.json"])).toThrow("packsift batch --diff requires --json unless --detail is set");
     expect(parseBatchArgs(["--json", "--diff", "old.json", "new.json"])).toMatchObject({ json: true, diff: true });
   });
 

@@ -1,5 +1,5 @@
 {
-  "name": "@ssbrouhard/sift",
+  "name": "@ssbrouhard/packsift",
   "version": "0.1.0",
   "description": "Deterministic npm tarball diff CLI with supply-chain tripwires.",
   "keywords": [
@@ -10,6 +10,10 @@
     "security"
   ],
   "license": "Apache-2.0",
+  "author": {
+    "name": "Stephen Brouhard",
+    "email": "oss@alderlinesystems.com"
+  },
   "type": "module",
   "repository": {
     "type": "git",
@@ -23,6 +27,7 @@
     "access": "public"
   },
   "bin": {
+    "packsift": "./dist/cli.js",
     "sift": "./dist/cli.js"
   },
   "files": [
