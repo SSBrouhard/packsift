@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.2.1 - 2026-07-30
+
+- Add an optional no-mistakes and agent-pipeline helper for dependency and
+  pre-publish PackSift evidence, with explicit evidence-never-verdict wiring
+  guidance.
+
 ## 0.2.0 - 2026-07-30
 
 - Add `packsift pack-check [dir-or-tgz]` for pre-publish comparison of an `npm pack` artifact with an explicit published version or the registry's latest version.
