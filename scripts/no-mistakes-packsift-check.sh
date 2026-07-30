@@ -27,6 +27,18 @@ release_input=""
 json_tmp_dir=""
 json_result_count=0
 
+if [ "${1:-}" = "dependencies" ] || [ "${1:-}" = "release" ]; then
+  mode="$1"
+  shift
+fi
+
+json_buffer_error() {
+  error_message="$1"
+  echo "$error_message" >&2
+  printf '%s\n' '{"version":1,"mode":"'"$mode"'","results":[],"events":[],"errors":[{"type":"helper-io","exitCode":2,"message":"'"$error_message"'"}]}'
+  exit 2
+}
+
 for argument do
   if [ "$argument" = "--json" ]; then
     json_flag="--json"
@@ -36,10 +48,9 @@ done
 
 if [ -n "$json_flag" ]; then
   json_tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/packsift-no-mistakes.XXXXXX") || {
-    echo "PackSift evidence error: cannot create JSON output buffer" >&2
-    exit 2
+    json_buffer_error "PackSift evidence error: cannot create JSON output buffer"
   }
-  : > "$json_tmp_dir/events"
+  : > "$json_tmp_dir/events" || json_buffer_error "PackSift evidence error: cannot initialize JSON output buffer"
   trap 'rm -rf "$json_tmp_dir"' EXIT
 fi
 
@@ -134,11 +145,6 @@ announce() {
     echo "$@"
   fi
 }
-
-if [ "${1:-}" = "dependencies" ] || [ "${1:-}" = "release" ]; then
-  mode="$1"
-  shift
-fi
 
 while [ "$#" -gt 0 ]; do
   case "$1" in

@@ -183,6 +183,28 @@ describe("no-mistakes PackSift helper", () => {
     }
   });
 
+  it("emits a fallback envelope when the JSON buffer cannot be created", async () => {
+    const fixture = await createFixture();
+    const invalidTempPath = path.join(fixture.repo, "not-a-directory");
+    await writeFile(invalidTempPath, "not a directory\n");
+
+    const result = runHelper(fixture, ["--json"], { TMPDIR: invalidTempPath });
+
+    expect(result.status).toBe(2);
+    expect(JSON.parse(result.stdout)).toEqual({
+      version: 1,
+      mode: "dependencies",
+      results: [],
+      events: [],
+      errors: [{
+        type: "helper-io",
+        exitCode: 2,
+        message: "PackSift evidence error: cannot create JSON output buffer",
+      }],
+    });
+    expect(result.stderr).toContain("cannot create JSON output buffer");
+  });
+
   it("emits an envelope for removed inputs in JSON mode", async () => {
     const fixture = await createFixture();
     await rm(path.join(fixture.repo, "package-lock.json"));
@@ -279,6 +301,7 @@ async function createFixture(
 function runHelper(
   fixture: { repo: string; bin: string; log: string },
   args: string[],
+  environment: Record<string, string> = {},
 ): ReturnType<typeof spawnSync> {
   return spawnSync(helper, args, {
     cwd: fixture.repo,
@@ -287,6 +310,7 @@ function runHelper(
       ...process.env,
       PACKSIFT_BIN: fixture.bin,
       PACKSIFT_TEST_LOG: fixture.log,
+      ...environment,
     },
   });
 }
