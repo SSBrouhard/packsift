@@ -3,8 +3,8 @@
 **Your Git diff is not your npm release.**
 
 PackSift compares the published npm tarballs users actually install. It reports
-unexpected files, lifecycle scripts, native binaries, possible secrets, and
-other supply-chain drift with deterministic evidence instead of a verdict.
+unexpected files, lifecycle scripts, native binaries, install-path network code,
+and other supply-chain drift with deterministic evidence instead of a verdict.
 
 Install it and compare two published releases:
 
