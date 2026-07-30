@@ -166,6 +166,8 @@ describe("no-mistakes PackSift helper", () => {
     const fixture = await createFixture();
     const cases = [
       [["--json", "--base"], "PackSift evidence error: --base requires a git ref"],
+      [["release", "--base", "main", "--json"], "PackSift evidence error: --base is not supported in release mode"],
+      [["--json", "--base", "--other"], "PackSift evidence error: --base requires a git ref"],
       [["--json", "--unknown"], "PackSift evidence error: unknown option: --unknown"],
       [["--json", "extra"], "PackSift evidence error: unexpected argument: extra"],
     ] as const;

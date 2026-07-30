@@ -95,10 +95,8 @@ fail_with_error() {
   error_type="$2"
   error_message="$3"
   echo "$error_message" >&2
-  if [ -n "$json_flag" ]; then
-    emit_json_envelope "$status" "$error_type" "$error_message"
-  fi
-  exit "$status"
+  finish_with_envelope "$status" "$error_type" "$error_message"
+  exit $?
 }
 
 fail_with_usage() {
@@ -106,10 +104,21 @@ fail_with_usage() {
   error_message="$2"
   echo "$error_message" >&2
   usage >&2
+  finish_with_envelope "$status" usage "$error_message"
+  exit $?
+}
+
+finish_with_envelope() {
+  status="$1"
   if [ -n "$json_flag" ]; then
-    emit_json_envelope "$status" usage "$error_message"
+    emit_json_envelope "$@"
+    serializer_status=$?
+    if [ "$serializer_status" -ne 0 ]; then
+      echo "PackSift evidence error: cannot serialize JSON envelope" >&2
+      return 2
+    fi
   fi
-  exit "$status"
+  return "$status"
 }
 
 record_json_event() {
@@ -134,7 +143,10 @@ fi
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --base)
-      if [ "$#" -lt 2 ]; then
+      if [ "$mode" = "release" ]; then
+        fail_with_usage 2 "PackSift evidence error: --base is not supported in release mode"
+      fi
+      if [ "$#" -lt 2 ] || [ "${2#-}" != "$2" ]; then
         fail_with_usage 2 "PackSift evidence error: --base requires a git ref"
       fi
       base_ref="$2"
@@ -148,7 +160,9 @@ while [ "$#" -gt 0 ]; do
       if [ -n "$json_flag" ]; then
         usage >&2
         record_json_event help
-        emit_json_envelope 0
+        finish_with_envelope 0
+        status=$?
+        exit "$status"
       else
         usage
       fi
@@ -184,8 +198,8 @@ if [ "$mode" = "release" ]; then
   record_json_event "pre-publish" "$release_input"
   run_packsift pack-check "$release_input"
   status=$?
-  emit_json_envelope "$status"
-  exit "$status"
+  finish_with_envelope "$status"
+  exit $?
 fi
 
 if git rev-parse --verify --quiet "$base_ref^{commit}" >/dev/null; then
@@ -263,8 +277,8 @@ for lockfile in $lockfiles; do
   run_packsift batch "$merge_base:$lockfile" "$lockfile"
   status=$?
   if [ "$status" -ne 0 ]; then
-    emit_json_envelope "$status"
-    exit "$status"
+    finish_with_envelope "$status"
+    exit $?
   fi
 done
 IFS=$old_ifs
@@ -281,5 +295,5 @@ if [ "$ran_check" = false ]; then
   fi
 fi
 
-emit_json_envelope 0
-exit 0
+finish_with_envelope 0
+exit $?
