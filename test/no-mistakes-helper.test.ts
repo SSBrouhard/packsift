@@ -293,7 +293,7 @@ async function createFixture(
   git(repo, ["config", "user.email", "fixture@example.com"]);
   git(repo, ["config", "user.name", "Fixture"]);
   git(repo, ["add", "."]);
-  git(repo, ["commit", "-m", "fixture base"]);
+  git(repo, ["-c", "commit.gpgsign=false", "commit", "-m", "fixture base"]);
   git(repo, ["checkout", "-b", "feature"]);
 
   return { repo, bin, log };

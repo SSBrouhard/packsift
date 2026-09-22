@@ -10,11 +10,11 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 - The public repository is `https://github.com/SSBrouhard/packsift`; the former `SSBrouhard/sift` URL redirects after the repository rename.
 - Product scope is published npm tarballs plus an explicitly supplied local `npm pack` artifact for `pack-check`, with npm/yarn/pnpm lockfiles used only to discover changed and added dependencies for batch analysis: no GitHub cloning/API calls, model calls, risk scores, verdicts, or recommendations in the deterministic core.
 - `--advisories` is the explicit opt-in sidecar exception: single-transition, inspect, and analyzed batch entries only, networked OSV.dev-compatible `/v1/query`, no authentication, timestamped, non-deterministic at query time, structured fields by default, optional third-party OSV summary passthrough with `--advisories=summary`, outside `analyze`, and only allowed with custom registries when `--advisory-endpoint` points at a private mirror or `--advisories-allow-public` explicitly permits public OSV.dev.
-- Runtime support starts at Node.js 20.
-- Keep `@types/node` pinned to the Node.js 20 major line while the runtime floor is Node.js 20.
+- Runtime support starts at Node.js 22.
+- Keep `@types/node` pinned to the Node.js 22 major line while the runtime floor is Node.js 22.
 - The `yaml` runtime dependency is intentionally exact-pinned and used only to parse yarn Berry and pnpm lockfiles; keep it minimal and zero-transitive because PackSift is itself a supply-chain tool.
 - Build with `npm run build`; run deterministic fixture tests with `npm test`; run `npm run typecheck` for strict TypeScript checking.
-- CI runs on push and pull request with Node.js 20 and 22, then typecheck, test, and build.
+- CI runs on push and pull request with Node.js 22, then typecheck, test, and build.
 - Dependabot covers npm dependencies and GitHub Actions weekly.
 - The analyzer strips the npm tarball `package/` prefix, hashes raw bytes, drops unchanged files entirely, and only generates full text diffs when `--diff` is requested.
 - `native-build-config` fires on added/changed `binding.gyp`, `*.gyp`, and `*.gypi` files, surfacing textual GYP command substitutions, interpreter build commands, and whether native source/header files are present.

@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Raise the runtime floor to Node.js 22, pin `@types/node` to the Node 22 major line, and test with Vitest 5.
+
 ## 0.2.1 - 2026-07-30
 
 - Add an optional no-mistakes and agent-pipeline helper for dependency and

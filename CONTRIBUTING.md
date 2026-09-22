@@ -37,8 +37,8 @@ node dist/cli.js --help
 
 ## Runtime Contract
 
-PackSift supports Node.js 20 or newer.
-CI must test Node 20, and `@types/node` should stay on the Node 20 major line unless the runtime floor is intentionally raised.
+PackSift supports Node.js 22 or newer.
+CI must test Node 22, and `@types/node` should stay on the Node 22 major line unless the runtime floor is intentionally raised.
 
 ## Pull Requests
 
